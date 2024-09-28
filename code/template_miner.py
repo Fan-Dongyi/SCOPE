@@ -16,7 +16,7 @@ from cachetools import LRUCache, cachedmethod
 scope_dir = os.path.dirname(__file__)
 sys.path.insert(0, scope_dir)  # Insert at the start of sys.path
 
-from scope import Drain, DrainBase, LogCluster
+from scope import Scope, ScopeBase, LogCluster, TemplateCluster
 #from scope.masking import LogMasker
 from persistence_handler import PersistenceHandler
 from simple_profiler import SimpleProfiler, NullProfiler, Profiler
@@ -61,10 +61,10 @@ class TemplateMiner:
         # Follow the configuration in the configuration file to instantiate Drain
         # target_obj will be "Drain" if the engine argument is not specified.
         target_obj = self.config.engine
-        if target_obj not in ["Drain", "JaccardDrain"]:
+        if target_obj not in ["Scope", "JaccardDrain"]:
             raise ValueError(f"Invalid matched_pattern: {target_obj}, must be either 'Drain' or 'JaccardDrain'")
 
-        self.drain: DrainBase = globals()[target_obj](
+        self.scope: ScopeBase = globals()[target_obj](
             sim_th=self.config.drain_sim_th,
             depth=self.config.drain_depth,
             max_children=self.config.drain_max_children,
@@ -108,9 +108,9 @@ class TemplateMiner:
                 cache.update(loaded_drain.id_to_cluster)
                 loaded_drain.id_to_cluster = cache
 
-        self.drain.id_to_cluster = loaded_drain.id_to_cluster
-        self.drain.clusters_counter = loaded_drain.clusters_counter
-        self.drain.root_node = loaded_drain.root_node
+        self.scope.id_to_cluster = loaded_drain.id_to_cluster
+        self.scope.clusters_counter = loaded_drain.clusters_counter
+        self.scope.root_node = loaded_drain.root_node
 
         logger.info(f"Restored {len(loaded_drain.clusters)} clusters "
                     f"built from {loaded_drain.get_total_cluster_size()} messages")
@@ -122,8 +122,8 @@ class TemplateMiner:
         if self.config.snapshot_compress_state:
             state = base64.b64encode(zlib.compress(state))
 
-        logger.info(f"Saving state of {len(self.drain.clusters)} clusters "
-                    f"with {self.drain.get_total_cluster_size()} messages, {len(state)} bytes, "
+        logger.info(f"Saving state of {len(self.scope.clusters)} clusters "
+                    f"with {self.scope.get_total_cluster_size()} messages, {len(state)} bytes, "
                     f"reason: {snapshot_reason}")
         self.persistence_handler.save_state(state)
 
@@ -147,14 +147,14 @@ class TemplateMiner:
         masked_content = log_message
 
         self.profiler.start_section("drain")
-        cluster, change_type = self.drain.add_log_message(masked_content)
+        cluster, change_type = self.scope.add_log_message(masked_content)
         self.profiler.end_section("drain")
         result: Mapping[str, Union[str, int]] = {
             "change_type": change_type,
             "cluster_id": cluster.cluster_id,
             "cluster_size": cluster.size,
             "template_mined": cluster.get_template(),
-            "cluster_count": len(self.drain.clusters)
+            "cluster_count": len(self.scope.clusters)
         }
 
         if self.persistence_handler is not None:
@@ -190,7 +190,7 @@ class TemplateMiner:
         """
 
         masked_content = self.masker.mask(log_message)
-        matched_cluster = self.drain.match(masked_content, full_search_strategy)
+        matched_cluster = self.scope.match(masked_content, full_search_strategy)
         return matched_cluster
 
     def get_parameter_list(self, log_template: str, log_message: str) -> Sequence[str]:
@@ -360,7 +360,8 @@ if __name__ == "__main__":
     in_log_file = "Drain_test.txt"
 
     config = TemplateMinerConfig()
-    config.load(f"{dirname(__file__)}/Drain3/examples/drain3.ini")
+    #config.load(f"{dirname(__file__)}/Drain3/examples/drain3.ini")
+    config.load(os.path.join(os.path.dirname(__file__), "../example/scope.ini"))
     config.profiling_enabled = True
     template_miner = TemplateMiner(config=config)
 

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class TemplateMinerConfig:
     def __init__(self) -> None:
-        self.engine = "Drain"
+        self.engine = "Scope"
         self.profiling_enabled = False
         self.profiling_report_sec = 60
         self.snapshot_interval_minutes = 5

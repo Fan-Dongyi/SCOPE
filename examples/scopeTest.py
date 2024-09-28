@@ -68,9 +68,9 @@ for line in lines:
 time_took = time.time() - start_time
 rate = line_count / time_took
 logger.info(f"--- Done processing file in {time_took:.2f} sec. Total of {line_count} lines, rate {rate:.1f} lines/sec, "
-            f"{len(template_miner.drain.clusters)} clusters")
+            f"{len(template_miner.scope.clusters)} clusters")
 
-sorted_clusters = sorted(template_miner.drain.clusters, key=lambda it: it.size, reverse=True)
+sorted_clusters = sorted(template_miner.scope.clusters, key=lambda it: it.size, reverse=True)
 for cluster in sorted_clusters:
     #logger.info(cluster)
     if(cluster.size == 1):
