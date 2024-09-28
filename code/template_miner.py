@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 
+import os
 import sys
 import base64
 import logging
@@ -12,14 +13,14 @@ import jsonpickle  # type: ignore[import]
 from cachetools import LRUCache, cachedmethod
 
 # Add the directory containing the module to sys.path
-drain3_dir = '/root/fdongyi/HowFar/LogMine/Drain3'
-sys.path.insert(0, drain3_dir)  # Insert at the start of sys.path
+scope_dir = os.path.dirname(__file__)
+sys.path.insert(0, scope_dir)  # Insert at the start of sys.path
 
-from drain3.drain import Drain, DrainBase, LogCluster
-from drain3.masking import LogMasker
-from drain3.persistence_handler import PersistenceHandler
-from drain3.simple_profiler import SimpleProfiler, NullProfiler, Profiler
-from drain3.template_miner_config import TemplateMinerConfig
+from scope import Drain, DrainBase, LogCluster
+#from scope.masking import LogMasker
+from persistence_handler import PersistenceHandler
+from simple_profiler import SimpleProfiler, NullProfiler, Profiler
+from template_miner_config import TemplateMinerConfig
 
 
 logger = logging.getLogger(__name__)
@@ -74,13 +75,13 @@ class TemplateMiner:
             parametrize_numeric_tokens=self.config.parametrize_numeric_tokens
         )
 
-        self.masker = LogMasker(self.config.masking_instructions, self.config.mask_prefix, self.config.mask_suffix)
+        #self.masker = LogMasker(self.config.masking_instructions, self.config.mask_prefix, self.config.mask_suffix)
         self.parameter_extraction_cache: MutableMapping[Tuple[str, bool], str] = \
             LRUCache(self.config.parameter_extraction_cache_capacity)
         self.last_save_time = time.time()
 
-        if persistence_handler is not None:
-            self.load_state()
+        #if persistence_handler is not None:
+            #self.load_state()
 
     def load_state(self) -> None:
         logger.info("Checking for saved state")
@@ -139,9 +140,11 @@ class TemplateMiner:
     def add_log_message(self, log_message: str) -> Mapping[str, Union[str, int]]:
         self.profiler.start_section("total")
 
+        """
         self.profiler.start_section("mask")
         masked_content = self.masker.mask(log_message)
-        self.profiler.end_section()
+        self.profiler.end_section()"""
+        masked_content = log_message
 
         self.profiler.start_section("drain")
         cluster, change_type = self.drain.add_log_message(masked_content)

@@ -1,6 +1,3 @@
-3b po-cran1-oamfm-0-ctr-cran1-oamfm-E043-0-FM <2024-02-17T13:05:50.967015Z> E1-ScenarioComponentTh INF/FM/Common, [fm::faultservice::FMService] Fault notification ack sent!CU_HTTP/info/HttpSession.cpp#243 on_headers_read bytes_transferred: 4096
-3b po-cran1-oamfm-0-ctr-cran1-oamfm-E043-0-FM <2024-02-17T13:05:50.967015Z> E1-ScenarioComponentTh INF/FM/Common, [fm::faultservice::FMService] Fault notification request sent!CU_HTTP/info/HttpSession.cpp#243 on_headers_read bytes_transferred: 1024
-1c po-cran1-oambb-0-ctr-cran1-oambb-E051-0-bm <2024-02-17T11:52:58.256052Z> 11E-clock INF/BM/CLOCK, oscillator_object: Oh, he could not forget those beautiful birds, those wonderful birds!
 My name is dongyi, ID = 111
 My name is nuobei, ID = 222
 My daugter name is nuoxi
