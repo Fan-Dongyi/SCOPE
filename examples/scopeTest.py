@@ -9,30 +9,19 @@ import time
 from os.path import dirname
 
 # Add the directory containing the module to sys.path
-drain3_dir = '/root/fdongyi/HowFar/LogMine/Drain3'
-sys.path.insert(0, drain3_dir)  # Insert at the start of sys.path
+scope_dir = '/root/fdongyi/SCOPE/code'
+sys.path.insert(0, scope_dir)  # Insert at the start of sys.path
 
-from drain3 import TemplateMiner
-from drain3.template_miner_config import TemplateMinerConfig
+from template_miner import TemplateMiner
+from template_miner_config import TemplateMinerConfig
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 
-in_gz_file = "SSH.tar.gz"
-in_log_file = "Drain_test.txt"
-test_log_1 = "all_logs_combined.txt"
-test_log_2 = "merged_file.txt"
-if not os.path.isfile(in_log_file):
-    #logger.info(f"Downloading file {in_gz_file}")
-    p = subprocess.Popen(f"curl https://zenodo.org/record/3227177/files/{in_gz_file} --output {in_gz_file}", shell=True)
-    p.wait()
-    #logger.info(f"Extracting file {in_gz_file}")
-    p = subprocess.Popen(f"tar -xvzf {in_gz_file}", shell=True)
-    p.wait()
-
+in_log_file = "scopeTestFile.txt"
 
 config = TemplateMinerConfig()
-config.load(f"{dirname(__file__)}/Drain3/examples/drain3.ini")
+config.load(f"{dirname(__file__)}/scope.ini")
 config.profiling_enabled = True
 template_miner = TemplateMiner(config=config)
 
