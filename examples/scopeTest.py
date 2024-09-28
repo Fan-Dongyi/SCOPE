@@ -9,7 +9,7 @@ import time
 from os.path import dirname
 
 # Add the directory containing the module to sys.path
-scope_dir = '/root/fdongyi/SCOPE/code'
+scope_dir = os.path.join(os.path.dirname(__file__), "../code")
 sys.path.insert(0, scope_dir)  # Insert at the start of sys.path
 
 from template_miner import TemplateMiner
@@ -18,7 +18,7 @@ from template_miner_config import TemplateMinerConfig
 logger = logging.getLogger(__name__)
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 
-in_log_file = "scopeTestFile.txt"
+in_log_file = os.path.join(os.path.dirname(__file__), "scopeTestFile.txt")
 
 config = TemplateMinerConfig()
 config.load(f"{dirname(__file__)}/scope.ini")
