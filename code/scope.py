@@ -17,12 +17,15 @@ class ClusterType(Enum):
 class Cluster(ABC):
     def __init__(self, cluster_id: int = 0, tokens: Iterable[str] = "", cluster_type: ClusterType = ClusterType.TEMPLATE) -> None:
       self.cluster_id = cluster_id
-      self.size = 1
+      self.size = 0
       self.cluster_type = cluster_type
       self.tokens = tuple(tokens)
 
     def get_tokens(self) -> Tuple[str]:
         return self.tokens
+
+    def set_tokens(self, tokens) -> None:
+        self.tokens = tuple(tokens)
 
     def __str__(self) -> str:
         return f"ID={str(self.cluster_id).ljust(5)} : size={str(self.size).ljust(10)}: {self.get_template()}"
@@ -39,6 +42,10 @@ class LogCluster(Cluster):
     def get_template(self) -> str:
         return ' '.join(self.log_tokens)
 
+    def set_template(self, template: Iterable[str]) -> None:
+        self.log_tokens = tuple(template)
+        self.set_tokens(template)
+
 class TemplateCluster(Cluster):
     def __init__(self, template_tokens: Iterable[str] = "This is a default log template", cluster_id: int = 0, log_cluster_id_pair: tuple =()) -> None:
       super().__init__(cluster_id, template_tokens, ClusterType.TEMPLATE)
@@ -47,6 +54,10 @@ class TemplateCluster(Cluster):
 
     def get_template(self) -> str:
         return ' '.join(self.template_tokens)
+
+    def set_template(self, template: Iterable[str]) -> None:
+        self.template_tokens = tuple(template)
+        self.set_tokens(template)
 
 
 _T = TypeVar("_T")
@@ -130,9 +141,10 @@ class ScopeBase(ABC):
         self.param_str = param_str
         self.parametrize_numeric_tokens = parametrize_numeric_tokens
 
-        self.id_to_templateCluster: MutableMapping[int, Optional[LogCluster]] = \
-            {} if max_clusters is None else LogClusterCache(maxsize=max_clusters)
-        self.templateClusters_counter = 0
+        self.id_to_fused_templateCluster: MutableMapping[int, Optional[TemplateCluster]] = {}
+        self.fused_templateClusters_cnt = 0
+        self.id_to_tree_templateCluster: MutableMapping[int, Optional[TemplateCluster]] = {}
+        self.tree_templateClusters_cnt = 0
         self.id_to_logCluster: MutableMapping[int, Optional[LogCluster]] = {} #{Log_id: LogCluster, id: log, ...}
         self.logCluster_counter = 0
         self.comparable_logClusters = {} # {len:[{log_id: logCluster}, {id: logCluster}, ...], len:[], ...}
@@ -141,7 +153,7 @@ class ScopeBase(ABC):
 
     @property
     def clusters(self) -> Collection[LogCluster]:
-        return cast(Collection[LogCluster], self.id_to_templateCluster.values())
+        return cast(Collection[LogCluster], self.id_to_fused_templateCluster.values())
 
     @staticmethod
     def has_numbers(s: Iterable[str]) -> bool:
@@ -168,9 +180,11 @@ class ScopeBase(ABC):
         max_cluster = None
 
         if cluster_type == ClusterType.TEMPLATE:
-            clusters = self.id_to_templateCluster
+            clusters = self.id_to_tree_templateCluster
         else:
             clusters = self.id_to_logCluster
+
+        #print("cluster_ids:", cluster_ids)
 
         for cluster_id in cluster_ids:
             # Try to retrieve cluster from cache with bypassing eviction
@@ -179,6 +193,8 @@ class ScopeBase(ABC):
             if cluster is None:
                 continue
             cur_sim, param_count = self.get_seq_distance(cluster.get_tokens(), tokens, include_params)
+            #print("fast_match: tree template:", cluster.get_tokens())
+            #print("fast_match: input tokens:", tokens)
             if cur_sim > max_sim or (cur_sim == max_sim and param_count > max_param_count):
                 max_sim = cur_sim
                 max_param_count = param_count
@@ -186,7 +202,6 @@ class ScopeBase(ABC):
 
         if max_sim >= sim_th:
             match_cluster = max_cluster
-
         return match_cluster
 
     def print_tree(self, file: Optional[IO[str]] = None, max_clusters: int = 5) -> None:
@@ -214,9 +229,9 @@ class ScopeBase(ABC):
             self.print_node(token, child, depth + 1, file, max_clusters)
 
         for cid in node.cluster_ids[:max_clusters]:
-            cluster = self.id_to_templateCluster[cid]
+            cluster = self.id_to_fused_templateCluster[cid]
             out_str = '\t' * (depth + 1) + str(cluster)
-            print(out_str, file=file)
+            #print(out_str, file=file)
 
     def get_content_as_tokens(self, content: str) -> Sequence[str]:
         content = content.strip()
@@ -227,48 +242,49 @@ class ScopeBase(ABC):
 
     def add_log_message(self, content: str) -> Tuple[LogCluster, str]:
         content_tokens = self.get_content_as_tokens(content)
-
+        #print("input is:",content_tokens)
         if self.profiler:
             self.profiler.start_section("tree_search")
-        match_template_cluster = self.tree_search(self.root_node, content_tokens, self.sim_th, False)
+        match_tree_template_cluster = self.tree_search(self.root_node, content_tokens, self.sim_th, False)
+        #print("tree_search return is:", match_tree_template_cluster)
         if self.profiler:
             self.profiler.end_section()
 
         # Match no existing log cluster
-        if match_template_cluster is None:
+        if match_tree_template_cluster is None:
             if self.profiler:
-                self.profiler.start_section("cluster_not_exist, try_build_templateCluster_into_tree")
-            retCluster = self.try_build_templateCluster_into_tree(content_tokens)
+                self.profiler.start_section("cluster_not_exist, build_templateCluster_with_input_log")
+            match_fused_cluster = self.build_templateCluster_with_input_log(content_tokens)
             if self.profiler:
                 self.profiler.end_section()
-            update_type = "created"
+            update_type = "created/none"
         # Add the new log message to the existing cluster
         else:
             if self.profiler:
-                self.profiler.start_section("cluster_exist, update_confused_templateClusters_by_intersect_logCluster")
-            new_template_tokens = self.create_template(content_tokens, match_template_cluster.get_tokens())
-            if tuple(new_template_tokens) == match_template_cluster.get_tokens():
+                self.profiler.start_section("cluster_exist, update_fused_templateClusters")
+            new_template_tokens = self.create_template(content_tokens, match_tree_template_cluster.get_tokens())
+            #print(new_template_tokens)
+            if tuple(new_template_tokens) == match_tree_template_cluster.get_tokens():
                 update_type = "none"
-                retCluster = self.get_fused_templateCluster_by_intersect_logCluster( \
-                                match_template_cluster.log_cluster_id_pair, match_template_cluster)
+                match_fused_cluster = self.get_fused_templateCluster(len(new_template_tokens), match_tree_template_cluster)
             else:
-                match_template_cluster.template_tokens = tuple(new_template_tokens)
-                update_type = "cluster_template_changed"
-                retCluster = self.update_confused_templateClusters_by_intersect_logCluster( \
-                                                match_template_cluster.log_cluster_id_pair, match_template_cluster)
-            match_template_cluster.size += 1
+                match_tree_template_cluster.set_template(tuple(new_template_tokens))
+                update_type = "changed"
+                match_fused_cluster = self.update_fused_templateClusters(len(new_template_tokens), match_tree_template_cluster)
+            match_tree_template_cluster.size += 1
             # Touch cluster to update its state in the cache.
             # noinspection PyStatementEffect
-            self.id_to_templateCluster[match_template_cluster.cluster_id]
-            self.id_to_templateCluster[retCluster.cluster_id]
+            self.id_to_tree_templateCluster[match_tree_template_cluster.cluster_id]
+            self.id_to_fused_templateCluster[match_fused_cluster.cluster_id]
             if self.profiler:
                 self.profiler.end_section()
 
-        return retCluster, update_type
+        #print("match_fused_cluster is:", match_fused_cluster.get_tokens())
+        return match_fused_cluster, update_type
 
     def get_total_cluster_size(self) -> int:
         size = 0
-        for c in self.id_to_templateCluster.values():
+        for c in self.id_to_fused_templateCluster.values():
             size += cast(LogCluster, c).size
         return size
 
@@ -302,7 +318,7 @@ class ScopeBase(ABC):
         ...
 
     @abstractmethod
-    def add_seq_to_prefix_tree(self, root_node: Node, cluster: LogCluster) -> None:
+    def add_seq_to_prefix_tree(self, root_node: Node, cluster: TemplateCluster) -> None:
         ...
 
     @abstractmethod
@@ -318,7 +334,7 @@ class ScopeBase(ABC):
         ...
 
     @abstractmethod
-    def update_confused_templateClusters_by_intersect_logCluster(self, in_log_cluster_id_pair: tuple,
+    def update_fused_templateClusters(self, in_log_cluster_id_pair: tuple,
                                              in_templateCluster: LogCluster) -> Optional[LogCluster]:
         ...
 
@@ -334,7 +350,7 @@ class Scope(ScopeBase):
         else:
             return []
 
-    def add_cluster_into_comparable_log_clusters(self, tokens: str) -> Optional[Cluster]:
+    def add_log_into_comparable_logClusters(self, tokens: str) -> Optional[Cluster]:
         length = len(tokens)
         if length not in self.comparable_logClusters:
             self.comparable_logClusters[length] = []
@@ -349,50 +365,73 @@ class Scope(ScopeBase):
               self.comparable_logClusters[length].remove(cluster)
               self.id_to_logCluster.pop(cluster.cluster_id, None)
 
-    def get_fused_templateCluster_by_intersect_logCluster(self, in_log_cluster_pair: tuple,
+    def get_fused_templateCluster_by_intersect_logCluster(self, length, log_cluster_id_pair: tuple,
                                                               in_templateCluster: Cluster) -> Optional[Cluster]:
-        in_logClusterIdSet = {in_log_cluster_pair[0].cluster_id, in_log_cluster_pair[1].cluster_id}
-        length = len(in_log_cluster_pair[0].get_tokens())
-        if length not in self.logClusterIds_to_templateCluster:
-            return in_templateCluster
-        for out_logClusterIdSet, out_templateClst in self.logClusterIds_to_templateCluster[length]:
-            if in_logClusterIdSet & out_logClusterIdSet:
-                return out_templateClst
-
-    def update_confused_templateClusters_by_intersect_logCluster(self, in_log_cluster_pair: tuple,
-                                             in_templateCluster: Cluster) -> Optional[Cluster]:
-        in_logClusterIdSet = {in_log_cluster_pair[0].cluster_id, in_log_cluster_pair[1].cluster_id}
-        length = len(in_log_cluster_pair[0].get_tokens())
-        if length not in self.logClusterIds_to_templateCluster:
-            self.logClusterIds_to_templateCluster[length] = []
-        for logClusterDict in self.logClusterIds_to_templateCluster[length]:
-            for out_logClusterIdSet, out_templateClst in logClusterDict.items():
-                if in_logClusterIdSet & {out_logClusterIdSet}:
-                    out_logClusterIdSet = out_logClusterIdSet | in_logClusterIdSet
-                    out_templateClst.log_template_tokens = \
-                        self.create_template(in_templateCluster.get_tokens(), out_templateClst.get_tokens())
-                    return out_templateClst
-        self.logClusterIds_to_templateCluster[length].append({tuple(in_logClusterIdSet): in_templateCluster})
+        in_logClusterIdSet = set(log_cluster_id_pair)
+        if length in self.logClusterIds_to_templateCluster:
+            for logClusterDict in self.logClusterIds_to_templateCluster[length]:
+                for out_logClusterIdSet, out_templateClst in logClusterDict.items():
+                    if in_logClusterIdSet & set(out_logClusterIdSet):
+                        out_templateClst.size += 1
+                        return out_templateClst
         return in_templateCluster
 
-    def try_build_templateCluster_into_tree(self, content_tokens: str) ->Optional[Cluster]:
-        length = len(content_tokens)
-        cluster_ids = self.get_cluster_ids_from_comparable_log_clusters(length) # [1,2,...]
+    def get_fused_templateCluster(self, length, templateCluster: TemplateCluster) -> Optional[TemplateCluster]:
+        return self.get_fused_templateCluster_by_intersect_logCluster(length, templateCluster.log_cluster_id_pair, templateCluster)
+
+    def update_fused_templateClusters(self, length, in_templateCluster: TemplateCluster) -> Optional[TemplateCluster]:
+        in_logClusterIdSet = set(in_templateCluster.log_cluster_id_pair)
+        if length not in self.logClusterIds_to_templateCluster:
+            self.logClusterIds_to_templateCluster[length] = []
+
+        for logClusterDict in self.logClusterIds_to_templateCluster[length]:
+            for out_logClusterIdSet, out_templateClst in logClusterDict.items():
+                #print("update_fused_templateClusters, existing:", out_templateClst.get_tokens())
+                if in_logClusterIdSet & set(out_logClusterIdSet):
+                    out_logClusterIdSet = set(out_logClusterIdSet) | in_logClusterIdSet
+                    out_templateClst.set_template(self.create_template(in_templateCluster.get_tokens(), out_templateClst.get_tokens()))
+                    out_templateClst.size += 1
+                    #print("update_fused_templateClusters, new template:", out_templateClst.get_tokens())
+                    return out_templateClst
+
+        new_templateCluster = self.create_fused_layer_template_cluster(in_templateCluster)
+        new_templateCluster.size += 1
+        self.logClusterIds_to_templateCluster[length].append({tuple(in_logClusterIdSet): new_templateCluster})
+        return new_templateCluster
+
+    def find_matched_cluster_from_comparable_logClusters(self, length, content_tokens: str) -> Optional[Cluster]:
+        cluster_ids = self.get_cluster_ids_from_comparable_log_clusters(length)
         matched_log_cluster = self.fast_match(cluster_ids, content_tokens, self.sim_th, False, ClusterType.LOG)
+        return matched_log_cluster
+
+    def build_templateCluster_into_tree(self, a_logCluster: LogCluster, b_logCluster: LogCluster) -> Optional[Cluster]:
+            templateCluster = self.create_tree_layer_template_cluster(a_logCluster, b_logCluster)
+            self.add_seq_to_prefix_tree(self.root_node, templateCluster)
+            return templateCluster
+
+    def build_templateCluster_into_tree_with_own_logCluster(self, logCluster: LogCluster) -> Optional[Cluster]:
+            return self.build_templateCluster_into_tree(logCluster, logCluster)
+
+    def build_templateCluster_into_tree_with_matched_logCluster(self, \
+                                                                matched_log_cluster: LogCluster, new_log_cluster: LogCluster) -> Optional[Cluster]:
+            return self.build_templateCluster_into_tree(matched_log_cluster, new_log_cluster)
+
+    def build_templateCluster_with_input_log(self, content_tokens: str) ->Optional[Cluster]:
+        length = len(content_tokens)
+        matched_log_cluster = self.find_matched_cluster_from_comparable_logClusters(length, content_tokens)
         # no matter template is build or not, add this log into comparable log clusters
-        new_log_cluster = self.add_cluster_into_comparable_log_clusters(content_tokens)
+        new_log_cluster = self.add_log_into_comparable_logClusters(content_tokens)
         if matched_log_cluster is not None:
             #1. create templateCluster based matched logCluster and input logCluster and add into tree
-            templateCluster = self.create_template_cluster(matched_log_cluster, new_log_cluster)
-            self.add_seq_to_prefix_tree(self.root_node, templateCluster)
+            templateCluster = self.build_templateCluster_into_tree_with_matched_logCluster(matched_log_cluster, new_log_cluster)
             #2. remove matched logCluster from comparable logClusters
             self.delete_cluster_from_comparable_log_clusters(length, matched_log_cluster)
-            #3. merge new template with legacy one based on its log cluster id pair
-            logClusterPair = (matched_log_cluster, new_log_cluster)
-            fusedTemplateCluster = self.update_confused_templateClusters_by_intersect_logCluster(logClusterPair, templateCluster)
-            return fusedTemplateCluster
         else:
-            return new_log_cluster
+            templateCluster = self.build_templateCluster_into_tree_with_own_logCluster(new_log_cluster)
+
+        #3. merge new template with legacy one based on its log cluster id pair
+        fusedTemplateCluster = self.update_fused_templateClusters(length, templateCluster)
+        return fusedTemplateCluster
 
     def tree_search(self,
                     root_node: Node,
@@ -410,7 +449,7 @@ class Scope(ScopeBase):
 
         # handle case of empty log string - return the single cluster in that group
         if token_count == 0:
-            return self.id_to_templateCluster.get(cur_node.cluster_ids[0])
+            return self.id_to_fused_templateCluster.get(cur_node.cluster_ids[0])
 
         # find the leaf node for this log - a path of nodes matching the first N tokens (N=tree depth)
         for token in tokens:
@@ -423,12 +462,14 @@ class Scope(ScopeBase):
             # token is matched:
             if cur_node.node_type == NodeType.LEAF:
                 break
+            #print("branch match:" f'{token} is matched')
 
         # get best match among all clusters with same prefix, or None if no match is above sim_th
+        #print("branch is matched, go to fast_match")
         cluster = self.fast_match(cur_node.cluster_ids, tokens, sim_th, include_params)
         return cluster
 
-    def add_seq_to_prefix_tree(self, root_node: Node, cluster: LogCluster) -> None:
+    def add_seq_to_prefix_tree(self, root_node: Node, cluster: TemplateCluster) -> None:
         token_count = len(cluster.get_tokens())
         token_count_str = str(token_count)
         if token_count_str not in root_node.key_to_child_node:
@@ -446,17 +487,18 @@ class Scope(ScopeBase):
 
         current_depth = 1
         for token in cluster.get_tokens():
-
+            #print("max_node_depth={}, cur_depth={}".format(self.max_node_depth, current_depth))
             # if at max depth or this is last token in template - add current log cluster to the leaf node
             if current_depth >= self.max_node_depth or current_depth >= token_count:
                 # clean up stale clusters before adding a new one.
                 new_cluster_ids = []
                 for cluster_id in cur_node.cluster_ids:
-                    if cluster_id in self.id_to_templateCluster:
+                    if cluster_id in self.id_to_tree_templateCluster:
                         new_cluster_ids.append(cluster_id)
                 new_cluster_ids.append(cluster.cluster_id)
                 cur_node.cluster_ids = new_cluster_ids
                 cur_node.node_type = NodeType.LEAF
+                #print("cur_node.cluster_ids:", cur_node.cluster_ids)
                 break
 
             # if token not matched in this layer of existing tree.
@@ -492,7 +534,7 @@ class Scope(ScopeBase):
             # if the token is matched
             else:
                 cur_node = cur_node.key_to_child_node[token]
-
+            #print("add_seq_to_prefix_tree: add token is:", token)
             current_depth += 1
 
     # seq1 is a template, seq2 is the log to match
@@ -532,11 +574,18 @@ class Scope(ScopeBase):
         assert len(seq1) == len(seq2)
         return [token2 if token1 == token2 else self.param_str for token1, token2 in zip(seq1, seq2)]
 
-    def create_template_cluster(self, old: LogCluster, new: LogCluster) -> Optional[LogCluster]:
+    def create_tree_layer_template_cluster(self, old: LogCluster, new: LogCluster) -> Optional[TemplateCluster]:
+        self.tree_templateClusters_cnt += 1
         template = self.create_template(old.get_tokens(), new.get_tokens())
-        self.templateClusters_counter += 1
         IdPair = (old.cluster_id, new.cluster_id)
-        templateCluster = TemplateCluster(template, self.templateClusters_counter, IdPair)
+        templateCluster = TemplateCluster(template, self.tree_templateClusters_cnt, IdPair)
+        self.id_to_tree_templateCluster[templateCluster.cluster_id] = templateCluster
+        return templateCluster
+
+    def create_fused_layer_template_cluster(self, in_templateCluster: TemplateCluster) -> Optional[TemplateCluster]:
+        self.fused_templateClusters_cnt += 1
+        templateCluster = TemplateCluster(in_templateCluster.get_tokens(), self.fused_templateClusters_cnt)
+        self.id_to_fused_templateCluster[templateCluster.cluster_id] = templateCluster
         return templateCluster
 
     def match(self, content: str, full_search_strategy: str = "never") -> Optional[LogCluster]:

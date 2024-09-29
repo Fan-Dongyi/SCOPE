@@ -146,15 +146,15 @@ class TemplateMiner:
         self.profiler.end_section()"""
         masked_content = log_message
 
-        self.profiler.start_section("drain")
+        self.profiler.start_section("scope")
         cluster, change_type = self.scope.add_log_message(masked_content)
-        self.profiler.end_section("drain")
+        self.profiler.end_section("scope")
         result: Mapping[str, Union[str, int]] = {
             "change_type": change_type,
             "cluster_id": cluster.cluster_id,
             "cluster_size": cluster.size,
             "template_mined": cluster.get_template(),
-            "cluster_count": len(self.scope.clusters)
+            "total_cluster_count": len(self.scope.clusters)
         }
 
         if self.persistence_handler is not None:

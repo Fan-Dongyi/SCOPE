@@ -60,7 +60,7 @@ for line in lines:
         rate = batch_size / time_took
         #logger.info(f"Processing line: {line_count}, rate {rate:.1f} lines/sec, "                    f"{len(template_miner.drain.clusters)} clusters so far.")
         batch_start_time = time.time()
-    if result["change_type"] != "none":
+    if result["change_type"] != None:
         result_json = json.dumps(result)
         #logger.info(f"Input ({line_count}): {line}")
         logger.info(f"Result: {result_json}")

@@ -1,14 +1,10 @@
-My name is dongyi, ID = 111
-My name is nuobei, ID = 222
-My daugter name is nuoxi
-Kevin leaves at 10:23:35
-bob leaves at 10:23:35
-M2002 is break
-M2004 is break
-Lucy leaves at 10:24:55
 John logins on system computer-winner
 John logins on system computer-winner
-Kevin logins on system computer-earth
-kevin logins on system computer-earth
+John logins on system computer-space
+Mary logins on system computer-space
 Tom logins on system computer-mars
 Cherry logins on system computer-moon
+Kevin leaves at 10:23:35
+bob leaves at 10:23:35
+Lucy leaves at 10:24:55
+Kite leaves at 23:34:12
