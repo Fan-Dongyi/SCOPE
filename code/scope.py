@@ -6,6 +6,7 @@ from typing import cast, Collection, IO, Iterable, MutableMapping, MutableSequen
     TYPE_CHECKING, TypeVar, Union
 from enum import Enum
 from cachetools import LRUCache, Cache
+from collections import defaultdict
 
 from simple_profiler import Profiler, NullProfiler
 
@@ -147,8 +148,8 @@ class ScopeBase(ABC):
         self.tree_templateClusters_cnt = 0
         self.id_to_logCluster: MutableMapping[int, Optional[LogCluster]] = {} #{Log_id: LogCluster, id: log, ...}
         self.logCluster_counter = 0
-        self.comparable_logClusters = {} # {len:[{log_id: logCluster}, {id: logCluster}, ...], len:[], ...}
-        self.logClusterIds_to_templateCluster = {} #{len:[{set{logID-1, logID-2, ...}: templateCluster-1},{{set}:},...], len:[]}
+        self.comparable_logClusters = {} # {len:{log_id: logCluster, id: logCluster, ...}, ..., len:{}, ...}
+        self.logClstId_to_templateClstId = defaultdict(dict) # {len:{log_id: template_id, ...}, len:{}, ...}
 
 
     @property
@@ -241,6 +242,7 @@ class ScopeBase(ABC):
         return content_tokens
 
     def add_log_message(self, content: str) -> Tuple[LogCluster, str]:
+        match_fused_cluster = None
         content_tokens = self.get_content_as_tokens(content)
         #print("input is:",content_tokens)
         if self.profiler:
@@ -252,21 +254,23 @@ class ScopeBase(ABC):
 
         # Match no existing log cluster
         if match_tree_template_cluster is None:
-            if self.profiler:
-                self.profiler.start_section("cluster_not_exist, build_templateCluster_with_input_log")
+            #if self.profiler:
+                #self.profiler.start_section("cluster_not_exist, build_templateCluster_with_input_log")
             match_fused_cluster = self.build_templateCluster_with_input_log(content_tokens)
-            if self.profiler:
-                self.profiler.end_section()
+            #if self.profiler:
+                #self.profiler.end_section()
             update_type = "created/none"
         # Add the new log message to the existing cluster
         else:
-            if self.profiler:
-                self.profiler.start_section("cluster_exist, update_fused_templateClusters")
             new_template_tokens = self.create_template(content_tokens, match_tree_template_cluster.get_tokens())
             #print(new_template_tokens)
             if tuple(new_template_tokens) == match_tree_template_cluster.get_tokens():
                 update_type = "none"
+                if self.profiler:
+                    self.profiler.start_section("cluster_exist, get_fused_templateCluster")
                 match_fused_cluster = self.get_fused_templateCluster(len(new_template_tokens), match_tree_template_cluster)
+                if self.profiler:
+                    self.profiler.end_section()
             else:
                 match_tree_template_cluster.set_template(tuple(new_template_tokens))
                 update_type = "changed"
@@ -275,9 +279,9 @@ class ScopeBase(ABC):
             # Touch cluster to update its state in the cache.
             # noinspection PyStatementEffect
             self.id_to_tree_templateCluster[match_tree_template_cluster.cluster_id]
-            self.id_to_fused_templateCluster[match_fused_cluster.cluster_id]
-            if self.profiler:
-                self.profiler.end_section()
+            #self.id_to_fused_templateCluster[match_fused_cluster.cluster_id]
+            #if self.profiler:
+                #self.profiler.end_section()
 
         #print("match_fused_cluster is:", match_fused_cluster.get_tokens())
         return match_fused_cluster, update_type
@@ -365,39 +369,63 @@ class Scope(ScopeBase):
               self.comparable_logClusters[length].remove(cluster)
               self.id_to_logCluster.pop(cluster.cluster_id, None)
 
-    def get_fused_templateCluster_by_intersect_logCluster(self, length, log_cluster_id_pair: tuple,
-                                                              in_templateCluster: Cluster) -> Optional[Cluster]:
+    def get_fused_templateCluster_by_intersect_logCluster(self, length, log_cluster_id_pair: tuple) -> Optional[Cluster]:
         in_logClusterIdSet = set(log_cluster_id_pair)
-        if length in self.logClusterIds_to_templateCluster:
-            for logClusterDict in self.logClusterIds_to_templateCluster[length]:
-                for out_logClusterIdSet, out_templateClst in logClusterDict.items():
-                    if in_logClusterIdSet & set(out_logClusterIdSet):
-                        out_templateClst.size += 1
-                        return out_templateClst
-        return in_templateCluster
+        if length in self.logClstId_to_templateClstId:
+            for id in in_logClusterIdSet:
+                if id in self.logClstId_to_templateClstId[length]:
+                    out_templateClst = self.id_to_fused_templateCluster[self.logClstId_to_templateClstId[length][id]]
+                    out_templateClst.size += 1
+                    return out_templateClst
 
     def get_fused_templateCluster(self, length, templateCluster: TemplateCluster) -> Optional[TemplateCluster]:
-        return self.get_fused_templateCluster_by_intersect_logCluster(length, templateCluster.log_cluster_id_pair, templateCluster)
+        return self.get_fused_templateCluster_by_intersect_logCluster(length, templateCluster.log_cluster_id_pair)
 
     def update_fused_templateClusters(self, length, in_templateCluster: TemplateCluster) -> Optional[TemplateCluster]:
         in_logClusterIdSet = set(in_templateCluster.log_cluster_id_pair)
-        if length not in self.logClusterIds_to_templateCluster:
-            self.logClusterIds_to_templateCluster[length] = []
 
-        for logClusterDict in self.logClusterIds_to_templateCluster[length]:
-            for out_logClusterIdSet, out_templateClst in logClusterDict.items():
-                #print("update_fused_templateClusters, existing:", out_templateClst.get_tokens())
-                if in_logClusterIdSet & set(out_logClusterIdSet):
-                    out_logClusterIdSet = set(out_logClusterIdSet) | in_logClusterIdSet
-                    out_templateClst.set_template(self.create_template(in_templateCluster.get_tokens(), out_templateClst.get_tokens()))
-                    out_templateClst.size += 1
-                    #print("update_fused_templateClusters, new template:", out_templateClst.get_tokens())
-                    return out_templateClst
+        id_existed = False
+        out_templateClstId = None
+        if length in self.logClstId_to_templateClstId:
+            for id in in_logClusterIdSet:
+                if id in self.logClstId_to_templateClstId[length].keys():
+                    id_existed = True
+                    out_templateClstId = self.logClstId_to_templateClstId[length][id]
+                    break
+        if id_existed is True:
+            out_templateClst = self.id_to_fused_templateCluster[out_templateClstId]
+            out_templateClst.set_template(self.create_template(in_templateCluster.get_tokens(), out_templateClst.get_tokens()))
+            out_templateClst.size += 1
 
-        new_templateCluster = self.create_fused_layer_template_cluster(in_templateCluster)
-        new_templateCluster.size += 1
-        self.logClusterIds_to_templateCluster[length].append({tuple(in_logClusterIdSet): new_templateCluster})
-        return new_templateCluster
+            for id in in_logClusterIdSet:
+                if id not in self.logClstId_to_templateClstId.keys():
+                    self.logClstId_to_templateClstId[length][id] = out_templateClstId
+
+            return out_templateClst
+
+            """         if length not in self.logClusterIds_to_templateCluster:
+                          self.logClusterIds_to_templateCluster[length] = []
+                      for logClusterDict in self.logClusterIds_to_templateCluster[length]:
+                          for out_logClusterIdSet, out_templateClst in logClusterDict.items():
+                              #print("update_fused_templateClusters, existing:", out_templateClst.get_tokens())
+                              if in_logClusterIdSet & set(out_logClusterIdSet):
+                                  out_logClusterIdSet = set(out_logClusterIdSet) | in_logClusterIdSet
+                                  self.profiler.start_section("build_templateCluster_with_input_log, 33333333333")
+                                  out_templateClst.set_template(self.create_template(in_templateCluster.get_tokens(), out_templateClst.get_tokens()))
+                                  out_templateClst.size += 1
+                                  #print("update_fused_templateClusters, new template:", out_templateClst.get_tokens())
+                                  self.profiler.end_section()
+                                  return out_templateClst
+                      #self.profiler.end_section() """
+        else:
+            self.profiler.start_section("build_templateCluster_with_input_log, 444444444444")
+            new_templateCluster = self.create_fused_layer_template_cluster(in_templateCluster)
+            new_templateCluster.size += 1
+            #self.logClusterIds_to_templateCluster[length].append({tuple(in_logClusterIdSet): new_templateCluster})
+            for logClusterId in in_logClusterIdSet:
+                self.logClstId_to_templateClstId[length][logClusterId] = new_templateCluster.cluster_id
+            self.profiler.end_section()
+            return new_templateCluster
 
     def find_matched_cluster_from_comparable_logClusters(self, length, content_tokens: str) -> Optional[Cluster]:
         cluster_ids = self.get_cluster_ids_from_comparable_log_clusters(length)
@@ -418,16 +446,22 @@ class Scope(ScopeBase):
 
     def build_templateCluster_with_input_log(self, content_tokens: str) ->Optional[Cluster]:
         length = len(content_tokens)
+        self.profiler.start_section("build_templateCluster_with_input_log, find_matched_cluster_from_comparable_logClusters")
         matched_log_cluster = self.find_matched_cluster_from_comparable_logClusters(length, content_tokens)
+        self.profiler.end_section()
         # no matter template is build or not, add this log into comparable log clusters
         new_log_cluster = self.add_log_into_comparable_logClusters(content_tokens)
         if matched_log_cluster is not None:
+            self.profiler.start_section("build_templateCluster_with_input_log, 11111111111")
             #1. create templateCluster based matched logCluster and input logCluster and add into tree
             templateCluster = self.build_templateCluster_into_tree_with_matched_logCluster(matched_log_cluster, new_log_cluster)
             #2. remove matched logCluster from comparable logClusters
             self.delete_cluster_from_comparable_log_clusters(length, matched_log_cluster)
+            self.profiler.end_section()
         else:
+            self.profiler.start_section("build_templateCluster_with_input_log, 2222222222222")
             templateCluster = self.build_templateCluster_into_tree_with_own_logCluster(new_log_cluster)
+            self.profiler.end_section()
 
         #3. merge new template with legacy one based on its log cluster id pair
         fusedTemplateCluster = self.update_fused_templateClusters(length, templateCluster)
@@ -449,7 +483,7 @@ class Scope(ScopeBase):
 
         # handle case of empty log string - return the single cluster in that group
         if token_count == 0:
-            return self.id_to_fused_templateCluster.get(cur_node.cluster_ids[0])
+            return self.id_to_tree_templateCluster.get(cur_node.cluster_ids[0])
 
         # find the leaf node for this log - a path of nodes matching the first N tokens (N=tree depth)
         for token in tokens:
@@ -580,6 +614,7 @@ class Scope(ScopeBase):
         IdPair = (old.cluster_id, new.cluster_id)
         templateCluster = TemplateCluster(template, self.tree_templateClusters_cnt, IdPair)
         self.id_to_tree_templateCluster[templateCluster.cluster_id] = templateCluster
+        #print("create_tree_layer_template_cluster, template is:", templateCluster.log_cluster_id_pair)
         return templateCluster
 
     def create_fused_layer_template_cluster(self, in_templateCluster: TemplateCluster) -> Optional[TemplateCluster]:
