@@ -9,6 +9,7 @@ from cachetools import LRUCache, Cache
 
 from simple_profiler import Profiler, NullProfiler
 from scope import ScopeBase
+from collections import defaultdict
 
 
 class Template():
@@ -118,7 +119,8 @@ class Tools(ScopeBase):
         self.param_str = param_str
         self.parametrize_numeric_tokens = parametrize_numeric_tokens
 
-        self.idToTemplateCluster: MutableMapping[int, Optional[Template]] = {}
+        self.idToTemplateCluster: MutableMapping[int, Template] = {}
+        self.lengthToTemplateIds = defaultdict(list)
         self.templateId = 0
 
     def getNewTemplateId(self) -> int:
@@ -152,7 +154,7 @@ class Tools(ScopeBase):
         if len(node.templateIds) > 0:
             out_str += f" (cluster_count={len(node.templateIds)})"
 
-        print(out_str, file=file)
+        #print(out_str, file=file)
 
         for token, child in node.keyToChildNode.items():
             self.print_node(token, child, depth + 1, file, max_clusters)
@@ -160,7 +162,7 @@ class Tools(ScopeBase):
         for cid in node.templateIds[:max_clusters]:
             cluster = self.idToTemplateCluster[cid]
             out_str = '\t' * (depth + 1) + str(cluster)
-            print(out_str, file=file)
+            #print(out_str, file=file)
 
     def get_content_as_tokens(self, content: str) -> Sequence[str]:
         content = content.strip()
@@ -234,11 +236,11 @@ class Tools(ScopeBase):
 
         def get_half_tokens(tokens):
             if token_count % 2 == 0:
-                return tokens[:token_count // 2]
+                return tokens[:token_count // 2+1]
             else:
-                return tokens[:(token_count - 1) // 2]
+                return tokens[:(token_count + 1) // 2]
         tokens = get_half_tokens(tokens)
-        current_depth = 1
+        current_depth = 0
         for token in tokens:
             #print("max_node_depth={}, cur_depth={}".format(self.max_node_depth, current_depth))
             # if at max depth or this is last token in template - add current log cluster to the leaf node
@@ -399,11 +401,9 @@ class Tools(ScopeBase):
             # Try to retrieve cluster from cache with bypassing eviction
             # algorithm as we are only testing candidates for a match.
             cluster = self.idToTemplateCluster.get(id)
-            if cluster is None or len(cluster.getTemplate()) != len(tokens):
+            if cluster is None:
                 continue
             cur_sim, param_count = self.get_seq_distance(cluster.getTemplate(), tokens, include_params)
-            #print("fast_match: tree template:", cluster.getTemplate())
-            #print("fast_match: input tokens:", tokens)
             if cur_sim > max_sim or (cur_sim == max_sim and param_count > max_param_count):
                 max_sim = cur_sim
                 max_param_count = param_count
@@ -411,16 +411,25 @@ class Tools(ScopeBase):
 
         if max_sim >= sim_th:
             match_cluster = max_cluster
+            # print("max_sim:", max_sim, "sim_th:", sim_th)
+            # print("fast_match: tree template:", match_cluster.getTemplate())
+            # print("fast_match: input tokens:", tokens)
         return match_cluster
 
-    def findMatchedTemplateFromPool(self, tokens: Sequence[str]) -> Optional[Template]:
-        TemplateIds = self.idToTemplateCluster.keys()
-        matchedTemplate = self.fast_match(TemplateIds, tokens, self.sim_th, False)
+    def findMatchedTemplateFromPool(self, length, tokens: Sequence[str]) -> Optional[Template]:
+        if length not in self.lengthToTemplateIds:
+            return None
+        templateIds = self.lengthToTemplateIds.get(length)
+        #print("length:", length, "size is:", len(templateIds))
+        matchedTemplate = self.fast_match(templateIds, tokens, self.sim_th, False)
         return matchedTemplate
 
     def updateTemplateOfPool(self, template: Template, newTemplateStr: Sequence[str]) -> None:
         template.setTemplate(newTemplateStr)
         template.increaseMatchedLogSize()
+        # lst = self.lengthToTemplateIds[len(newTemplateStr)]
+        # if template.templateId in lst:
+        #     lst.append(lst.pop(lst.index(template.templateId)))
 
     def findMatchedTemplateFromTree(self,
                     root_node: Node,
@@ -478,9 +487,12 @@ class Tools(ScopeBase):
         cluster = self.fast_match(cur_node.templateIds, tokens, sim_th, include_params)
         return cluster
 
-    def buildTemplateWithInputLog(self, tokens: Sequence[str]) -> Optional[Template]:
+    def buildTemplateWithInputLog(self, length, tokens: Sequence[str]) -> Optional[Template]:
         template = Template(tokens, self.getNewTemplateId())
         self.idToTemplateCluster[template.templateId] = template
+        #self.lengthToTemplateIds[length].append(template.templateId)
+        self.lengthToTemplateIds[length].insert(0, template.templateId)
+        #print("length:", length, "str is:", tokens)
         return template
 
     def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
@@ -489,6 +501,7 @@ class Tools(ScopeBase):
 
     def add_log_message(self, content: str) -> Tuple[Template, str]:
         content_tokens = self.get_content_as_tokens(content)
+        length = len(content_tokens)
         #print("input is:",content_tokens)
         if self.profiler:
             self.profiler.start_section("findMatchedTemplateFromTree")
@@ -500,11 +513,13 @@ class Tools(ScopeBase):
         # Match no existing template
         if fwSeqMatchedTemplate is None and RvSeqMatchedTemplate is None: # both forward and reverse sequence don't have matched template
             if self.profiler:
-                self.profiler.start_section("Match no existing template")
+                self.profiler.start_section("Match no existing template, findMatchedTemplateFromPool")
 
-            matchedPoolTemplate = self.findMatchedTemplateFromPool(content_tokens)
+            matchedPoolTemplate = self.findMatchedTemplateFromPool(length, content_tokens)
+            if self.profiler:
+                self.profiler.end_section()
             if matchedPoolTemplate is None: # it's a new message which don't have template in pool yet
-                matchedPoolTemplate = self.buildTemplateWithInputLog(content_tokens)
+                matchedPoolTemplate = self.buildTemplateWithInputLog(length, content_tokens)
                 update_type = "created"
             else: # similar template is found in pool but not in tree, need update template and add to tree
                 newTemplateStr = self.create_template(content_tokens, matchedPoolTemplate.getTemplate())
@@ -512,13 +527,18 @@ class Tools(ScopeBase):
                 update_type = "updated"
             self.addTemplateSeqToPrefixTree(self.root_node, matchedPoolTemplate)
 
-            if self.profiler:
-                self.profiler.end_section()
+
         else: # Match existing template at least one direction of tree
             if self.profiler:
                 self.profiler.start_section("Match any existing template")
 
             if fwSeqMatchedTemplate is not None and RvSeqMatchedTemplate is not None:
+                if(fwSeqMatchedTemplate.templateId != RvSeqMatchedTemplate.templateId):
+                    print("input is:",content_tokens)
+                    print("fwSeqMatchedTemplate.templateId:", fwSeqMatchedTemplate.templateId)
+                    print("fw template:", fwSeqMatchedTemplate.getTemplateStr())
+                    print("RvSeqMatchedTemplate.templateId:", RvSeqMatchedTemplate.templateId)
+                    print("Rv template:", RvSeqMatchedTemplate.getTemplateStr())
                 assert(fwSeqMatchedTemplate.templateId == RvSeqMatchedTemplate.templateId)
                 matchedPoolTemplate = fwSeqMatchedTemplate
             elif fwSeqMatchedTemplate is not None:

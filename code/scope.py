@@ -429,6 +429,7 @@ class Scope(ScopeBase):
 
     def find_matched_cluster_from_comparable_logClusters(self, length, content_tokens: str) -> Optional[Cluster]:
         cluster_ids = self.get_cluster_ids_from_comparable_log_clusters(length)
+        #print("length: ", length, "size is:", len(cluster_ids))
         matched_log_cluster = self.fast_match(cluster_ids, content_tokens, self.sim_th, False, ClusterType.LOG)
         return matched_log_cluster
 
