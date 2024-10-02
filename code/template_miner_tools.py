@@ -150,14 +150,21 @@ class TemplateMiner:
         self.profiler.start_section("scope")
         cluster, change_type = self.scope.add_log_message(masked_content)
         self.profiler.end_section("scope")
-
         result: Mapping[str, Union[str, int]] = {
             "change_type": change_type,
-            "cluster_id": cluster.cluster_id,
-            "cluster_size": cluster.size,
-            "template_mined": cluster.get_template(),
+            "cluster_id": cluster.templateId,
+            "cluster_size": cluster.matchedLogSize,
+            "template_mined": cluster.getTemplateStr(),
             "total_cluster_count": len(self.scope.clusters)
         }
+
+        # result: Mapping[str, Union[str, int]] = {
+        #     "change_type": change_type,
+        #     "cluster_id": cluster.cluster_id,
+        #     "cluster_size": cluster.size,
+        #     "template_mined": cluster.get_template(),
+        #     "total_cluster_count": len(self.scope.clusters)
+        # }
 
         if self.persistence_handler is not None:
             self.profiler.start_section("save_state")
