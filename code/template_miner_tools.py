@@ -41,7 +41,7 @@ class TemplateMiner:
         :param persistence_handler: The type of persistence to use. When None, no persistence is applied.
         :param config: Configuration object. When none, configuration is loaded from default .ini file (if exist)
         """
-        logger.info("Starting Drain3 template miner")
+        logger.info("Starting Tools template miner")
 
         if config is None:
             logger.info(f"Loading configuration from {config_filename}")

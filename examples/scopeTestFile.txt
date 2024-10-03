@@ -1,7 +1,7 @@
-John logins on system computer-winner
-John logins on system computer-winner
-John logins on system computer-space
-Mary logins on system computer-space
+John monday logins on system computer-winner
+John monday logins on system computer-winner
+Mary friday logins on system computer-winner
+John friday logins on system computer-mars
 Tom logins on system computer-mars
 Cherry logins on system computer-moon
 Kevin leaves at 10:23:35

@@ -154,7 +154,7 @@ class Tools(ScopeBase):
         if len(node.templateIds) > 0:
             out_str += f" (cluster_count={len(node.templateIds)})"
 
-        #print(out_str, file=file)
+        print(out_str, file=file)
 
         for token, child in node.keyToChildNode.items():
             self.print_node(token, child, depth + 1, file, max_clusters)
@@ -162,7 +162,7 @@ class Tools(ScopeBase):
         for cid in node.templateIds[:max_clusters]:
             cluster = self.idToTemplateCluster[cid]
             out_str = '\t' * (depth + 1) + str(cluster)
-            #print(out_str, file=file)
+            print(out_str, file=file)
 
     def get_content_as_tokens(self, content: str) -> Sequence[str]:
         content = content.strip()
@@ -203,24 +203,24 @@ class Tools(ScopeBase):
     def add_seq_to_prefix_tree(self, root_node: Node, cluster: Template, seqType: SequenceType) -> None:
         tokens = cluster.getTemplate()
         token_count = len(tokens)
-        #print("existing", tokens)
+        print("existing", tokens)
         token_count_str = str(token_count)
         token_seqType_str = str(int(seqType.value))
         if token_count_str not in root_node.keyToChildNode:
             first_layer_node = Node(NodeType.DIRECTION)
             root_node.keyToChildNode[token_count_str] = first_layer_node
-            #print("create LENGTH node:", token_count_str)
+            print("create LENGTH node:", token_count_str)
         else:
             first_layer_node = root_node.keyToChildNode[token_count_str]
-            #print("existing LENGTH node:", token_count_str)
+            print("existing LENGTH node:", token_count_str)
 
         if  token_seqType_str not in first_layer_node.keyToChildNode:
             sec_layer_node = Node(NodeType.INTERMEDIATE)
             first_layer_node.keyToChildNode[token_seqType_str] = sec_layer_node
-            #print("create DIR node:", token_seqType_str)
+            print("create DIR node:", token_seqType_str)
         else:
             sec_layer_node = first_layer_node.keyToChildNode[token_seqType_str]
-            #print("existing DIR node:", token_seqType_str)
+            print("existing DIR node:", token_seqType_str)
 
         cur_node = sec_layer_node
 
@@ -232,29 +232,18 @@ class Tools(ScopeBase):
         tokens = tokens[::1] if seqType == SequenceType.FORWARD else tokens[::-1]
 
         #tokens = tokens.split()
-        #print("tokens:", tokens)
+        print("tokens:", tokens)
 
         def get_half_tokens(tokens):
             if token_count % 2 == 0:
-                return tokens[:token_count // 2+1]
+                return tokens[:token_count // 2]
             else:
-                return tokens[:(token_count + 1) // 2]
+                return tokens[:(token_count - 1) // 2]
         tokens = get_half_tokens(tokens)
-        current_depth = 0
+        current_depth = 1
         for token in tokens:
-            #print("max_node_depth={}, cur_depth={}".format(self.max_node_depth, current_depth))
+            print("max_node_depth={}, cur_depth={}".format(self.max_node_depth, current_depth))
             # if at max depth or this is last token in template - add current log cluster to the leaf node
-            if current_depth >= self.max_node_depth or current_depth >= len(tokens):
-                # clean up stale clusters before adding a new one.
-                new_cluster_ids = set()
-                for cluster_id in cur_node.templateIds:
-                    if cluster_id in self.idToTemplateCluster:
-                        new_cluster_ids.add(cluster_id)
-                new_cluster_ids.add(cluster.templateId)
-                cur_node.templateIds = new_cluster_ids
-                cur_node.nodeType = NodeType.LEAF
-                #print("cur_node.templateIds:", cur_node.templateIds)
-                break
 
             # if token not matched in this layer of existing tree.
             if token not in cur_node.keyToChildNode:
@@ -289,8 +278,21 @@ class Tools(ScopeBase):
             # if the token is matched
             else:
                 cur_node = cur_node.keyToChildNode[token]
-            #print("add_seq_to_prefix_tree: add token is:", token)
+            print("add_seq_to_prefix_tree: add token is:", token)
             current_depth += 1
+
+            if current_depth >= self.max_node_depth or current_depth > len(tokens):
+                # clean up stale clusters before adding a new one.
+                print("end of token add")
+                new_cluster_ids = set()
+                for cluster_id in cur_node.templateIds:
+                    if cluster_id in self.idToTemplateCluster:
+                        new_cluster_ids.add(cluster_id)
+                new_cluster_ids.add(cluster.templateId)
+                cur_node.templateIds = new_cluster_ids
+                cur_node.nodeType = NodeType.LEAF
+                print("cur_node.templateIds:", cur_node.templateIds)
+                break
 
     # seq1 is a template, seq2 is the log to match
     def get_seq_distance(self, seq1: Sequence[str], seq2: Sequence[str], include_params: bool) -> Tuple[float, int]:
@@ -395,7 +397,7 @@ class Tools(ScopeBase):
         max_param_count = -1
         max_cluster = None
 
-        #print("templateIds:", templateIds)
+        print("templateIds:", templateIds)
 
         for id in templateIds:
             # Try to retrieve cluster from cache with bypassing eviction
@@ -420,7 +422,7 @@ class Tools(ScopeBase):
         if length not in self.lengthToTemplateIds:
             return None
         templateIds = self.lengthToTemplateIds.get(length)
-        #print("length:", length, "size is:", len(templateIds))
+        print("length:", length, "size is:", len(templateIds))
         matchedTemplate = self.fast_match(templateIds, tokens, self.sim_th, False)
         return matchedTemplate
 
@@ -449,28 +451,32 @@ class Tools(ScopeBase):
 
         # at first level, children are grouped by token (word) count
         token_count = len(tokens)
-        #print("token_count:", token_count)
+        print("token_count:", token_count)
         cur_node = root_node.keyToChildNode.get(str(token_count))
-        #print("length node:", cur_node)
+        print("length node:", cur_node)
         # no template with same token count yet
         if cur_node is None:
             return None
 
         cur_node = cur_node.keyToChildNode.get(str(int(seq_type.value)))
-        #print("direction node:", cur_node)
+        print("direction node:", cur_node)
         # no template with matched dirction sequence yet
         if cur_node is None:
             return None
-        #print("cur_node:", cur_node)
+        print("cur_node:", cur_node)
         # handle case of empty log string - return the single cluster in that group
         if token_count == 0:
             return self.idToTemplateCluster.get(cur_node.templateIds[0])
 
         # find the leaf node for this log - a path of nodes matching the first N tokens (N=tree depth)
         tokensToMatch = tokens[::1] if seq_type == SequenceType.FORWARD else tokens[::-1]
-        #print("tokens:", tokens)
+        print("tokens:", tokens)
 
         for token in tokensToMatch:
+            print("start to match token:", token)
+            if cur_node.nodeType == NodeType.LEAF:
+                print("leaf node is matched")
+                break
             keyToChildNode = cur_node.keyToChildNode
             cur_node = keyToChildNode.get(token)
             if cur_node is None:  # no exact next token exist, try wildcard node
@@ -478,12 +484,11 @@ class Tools(ScopeBase):
             if cur_node is None:  # no wildcard node exist
                 return None
             # token is matched:
-            if cur_node.nodeType == NodeType.LEAF:
-                break
-            #print("branch match:" f'{token} is matched')
+            print("branch match:" f'{token} is matched')
+
 
         # get best match among all clusters with same prefix, or None if no match is above sim_th
-        #print("branch is matched, go to fast_match")
+        print("branch is matched, go to fast_match")
         cluster = self.fast_match(cur_node.templateIds, tokens, sim_th, include_params)
         return cluster
 
@@ -492,7 +497,7 @@ class Tools(ScopeBase):
         self.idToTemplateCluster[template.templateId] = template
         #self.lengthToTemplateIds[length].append(template.templateId)
         self.lengthToTemplateIds[length].insert(0, template.templateId)
-        #print("length:", length, "str is:", tokens)
+        print("length:", length, "str is:", tokens)
         return template
 
     def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
@@ -502,11 +507,11 @@ class Tools(ScopeBase):
     def add_log_message(self, content: str) -> Tuple[Template, str]:
         content_tokens = self.get_content_as_tokens(content)
         length = len(content_tokens)
-        #print("input is:",content_tokens)
+        print("input is:",content_tokens)
         if self.profiler:
             self.profiler.start_section("findMatchedTemplateFromTree")
         (fwSeqMatchedTemplate, RvSeqMatchedTemplate) = self.findMatchedTemplateFromTree(self.root_node, content_tokens, self.sim_th, False)
-        #print("tree_search return is:(", fwSeqMatchedTemplate, RvSeqMatchedTemplate, ")")
+        print("tree_search return is:(", fwSeqMatchedTemplate, RvSeqMatchedTemplate, ")")
         if self.profiler:
             self.profiler.end_section()
 
