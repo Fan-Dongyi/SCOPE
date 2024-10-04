@@ -227,12 +227,12 @@ template_miner = TemplateMiner(config=config)
 for dataset, setting in benchmark_settings.items():
     print(BLUE+dataset+RESET)
     starttime = datetime.datetime.now()
-    parse = format_log(log_format=setting['log_format'], indir='logs/')
+    parse = format_log(log_format=setting['log_format'], indir=dirname(__file__)+'/logs/')
     logs = parse.get_format_logs(setting['log_file'])
     content = logs['Content']
     start = datetime.datetime.now()
     sentences = content.tolist()
-    df_groundtruth=pd.read_csv('logs/' + dataset + '/' + dataset + '_2k.log_structured.csv',
+    df_groundtruth=pd.read_csv(dirname(__file__) + '/logs/' + dataset + '/' + dataset + '_2k.log_structured.csv',
                 encoding='UTF-8', header=0)
     template_miner = TemplateMiner(config=config)
 

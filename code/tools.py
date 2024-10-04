@@ -14,9 +14,10 @@ from collections import defaultdict
 
 class Template():
     def __init__(self, templateTokens: Iterable[str] = "This is a default log template", templateId: int = 0) -> None:
-      self.templateTokens = templateTokens
       self.templateId = templateId
       self.matchedLogSize = 1 # there is log matched this template when it's created, so 1 by default
+      self.posToTokenSet = defaultdict(set) # {0:set(), 1:set(), 2:set(), ...}
+      self.setTemplate(templateTokens)
 
     def getTemplateStr(self) -> str:
         return ' '.join(self.templateTokens)
@@ -24,8 +25,14 @@ class Template():
     def getTemplate(self) -> str:
         return self.templateTokens
 
+    def getPosToTokenSet(self) -> MutableMapping[int, set]:
+        return self.posToTokenSet
+
     def setTemplate(self, templateTokens: Iterable[str]) -> None:
         self.templateTokens = templateTokens
+        for index, token in enumerate(templateTokens): # start from 0
+            self.posToTokenSet[index].add(token)
+            #print("posToTokenSet[{}]:{}".format(index, self.posToTokenSet[index]))
 
     def increaseMatchedLogSize(self) -> None:
         self.matchedLogSize += 1
@@ -69,12 +76,13 @@ class SequenceType(Enum):
     REVERSE = 2
 
 class Node():
-    __slots__ = ["nodeType", "keyToChildNode", "templateIds"]
+    __slots__ = ["nodeType", "keyToChildNode", "templateIds", "tokensInWildcard"]
 
     def __init__(self, nodeType: NodeType) -> None:
         self.nodeType: NodeType = nodeType
         self.keyToChildNode: MutableMapping[str, Node] = {}
         self.templateIds: Sequence[int] = set()
+        self.tokensInWildcard = set()
 
 
 class Tools(ScopeBase):
@@ -154,7 +162,7 @@ class Tools(ScopeBase):
         if len(node.templateIds) > 0:
             out_str += f" (cluster_count={len(node.templateIds)})"
 
-        print(out_str, file=file)
+        #print(out_str, file=file)
 
         for token, child in node.keyToChildNode.items():
             self.print_node(token, child, depth + 1, file, max_clusters)
@@ -162,7 +170,7 @@ class Tools(ScopeBase):
         for cid in node.templateIds[:max_clusters]:
             cluster = self.idToTemplateCluster[cid]
             out_str = '\t' * (depth + 1) + str(cluster)
-            print(out_str, file=file)
+            #print(out_str, file=file)
 
     def get_content_as_tokens(self, content: str) -> Sequence[str]:
         content = content.strip()
@@ -202,25 +210,26 @@ class Tools(ScopeBase):
 
     def add_seq_to_prefix_tree(self, root_node: Node, cluster: Template, seqType: SequenceType) -> None:
         tokens = cluster.getTemplate()
+        posToTokenSet = cluster.getPosToTokenSet()
         token_count = len(tokens)
-        print("existing", tokens)
+        #print("existing", tokens)
         token_count_str = str(token_count)
         token_seqType_str = str(int(seqType.value))
         if token_count_str not in root_node.keyToChildNode:
             first_layer_node = Node(NodeType.DIRECTION)
             root_node.keyToChildNode[token_count_str] = first_layer_node
-            print("create LENGTH node:", token_count_str)
+            #print("create LENGTH node:", token_count_str)
         else:
             first_layer_node = root_node.keyToChildNode[token_count_str]
-            print("existing LENGTH node:", token_count_str)
+            #print("existing LENGTH node:", token_count_str)
 
         if  token_seqType_str not in first_layer_node.keyToChildNode:
             sec_layer_node = Node(NodeType.INTERMEDIATE)
             first_layer_node.keyToChildNode[token_seqType_str] = sec_layer_node
-            print("create DIR node:", token_seqType_str)
+            #print("create DIR node:", token_seqType_str)
         else:
             sec_layer_node = first_layer_node.keyToChildNode[token_seqType_str]
-            print("existing DIR node:", token_seqType_str)
+            #print("existing DIR node:", token_seqType_str)
 
         cur_node = sec_layer_node
 
@@ -232,58 +241,68 @@ class Tools(ScopeBase):
         tokens = tokens[::1] if seqType == SequenceType.FORWARD else tokens[::-1]
 
         #tokens = tokens.split()
-        print("tokens:", tokens)
+        #print("tokens:", tokens)
 
         def get_half_tokens(tokens):
             if token_count % 2 == 0:
-                return tokens[:token_count // 2]
+                return tokens[:token_count // 2 + 1]
             else:
-                return tokens[:(token_count - 1) // 2]
+                return tokens[:(token_count + 1) // 2]
         tokens = get_half_tokens(tokens)
+
         current_depth = 1
-        for token in tokens:
-            print("max_node_depth={}, cur_depth={}".format(self.max_node_depth, current_depth))
-            # if at max depth or this is last token in template - add current log cluster to the leaf node
-
-            # if token not matched in this layer of existing tree.
-            if token not in cur_node.keyToChildNode:
-                if self.parametrize_numeric_tokens and self.has_numbers(token):
-                    if self.param_str not in cur_node.keyToChildNode:
-                        new_node = Node(NodeType.INTERMEDIATE)
-                        cur_node.keyToChildNode[self.param_str] = new_node
-                        cur_node = new_node
-                    else:
-                        cur_node = cur_node.keyToChildNode[self.param_str]
-
+        for index, token in enumerate(tokens):
+            #print("max_node_depth={}, cur_depth={}".format(self.max_node_depth, current_depth))
+            index = index if seqType == SequenceType.FORWARD else token_count - index - 1
+            if token == self.param_str:
+                if self.param_str not in cur_node.keyToChildNode: # * node always can be added as room is reserved
+                    new_node = Node(NodeType.INTERMEDIATE)
+                    new_node.tokensInWildcard = posToTokenSet[index]
+                    #print(f"posToTokenSet[{index}]: {posToTokenSet[index]}")
+                    #print("no <*>, update tokensInWildcard:", new_node.tokensInWildcard)
+                    cur_node.keyToChildNode[self.param_str] = new_node
+                    cur_node = new_node
                 else:
-                    if self.param_str in cur_node.keyToChildNode:
-                        if len(cur_node.keyToChildNode) < self.max_children:
+                    new_node = cur_node.keyToChildNode[self.param_str]
+                    new_node.tokensInWildcard = new_node.tokensInWildcard | posToTokenSet[index]
+                    cur_node = new_node
+                    #print(" <*> exists, update tokensInWildcard:", new_node.tokensInWildcard)
+            else:
+                if token not in cur_node.keyToChildNode:
+                    if self.parametrize_numeric_tokens and self.has_numbers(token): # it's a parameter token
+                        if self.param_str not in cur_node.keyToChildNode:
                             new_node = Node(NodeType.INTERMEDIATE)
-                            cur_node.keyToChildNode[token] = new_node
-                            cur_node = new_node
-                        else:
-                            cur_node = cur_node.keyToChildNode[self.param_str]
-                    else:
-                        if len(cur_node.keyToChildNode) + 1 < self.max_children:
-                            new_node = Node(NodeType.INTERMEDIATE)
-                            cur_node.keyToChildNode[token] = new_node
-                            cur_node = new_node
-                        elif len(cur_node.keyToChildNode) + 1 == self.max_children:
-                            new_node = Node(NodeType.INTERMEDIATE)
+                            #new_node.tokensInWildcard.append(token) # <*> node is used to preempt existing token in tree
                             cur_node.keyToChildNode[self.param_str] = new_node
                             cur_node = new_node
                         else:
-                            cur_node = cur_node.keyToChildNode[self.param_str]
-
-            # if the token is matched
-            else:
-                cur_node = cur_node.keyToChildNode[token]
-            print("add_seq_to_prefix_tree: add token is:", token)
+                            cur_node = cur_node.keyToChildNode[self.param_str] # <*> is selected if token is not in tree
+                    else: # it's a normal token
+                        if self.param_str in cur_node.keyToChildNode: # <*> node exists in tree, add token to it if room is available
+                            if len(cur_node.keyToChildNode) < self.max_children:
+                                new_node = Node(NodeType.INTERMEDIATE)
+                                cur_node.keyToChildNode[token] = new_node
+                                cur_node = new_node
+                            else:
+                                cur_node = cur_node.keyToChildNode[self.param_str] # if the number of children is full, use * node directly
+                        else: # <*> node not exists in tree
+                            if len(cur_node.keyToChildNode) + 1 < self.max_children: # there is room for new token if at least one room is reserved for <*>
+                                new_node = Node(NodeType.INTERMEDIATE)
+                                cur_node.keyToChildNode[token] = new_node
+                                cur_node = new_node
+                            else: # only 1 room left, only can add <*> node
+                                new_node = Node(NodeType.INTERMEDIATE)
+                                #new_node.tokensInWildcard.append(token) #<*> node is used to preempt existing token in tree
+                                cur_node.keyToChildNode[self.param_str] = new_node
+                                cur_node = new_node
+                else: # if the token is matched
+                    cur_node = cur_node.keyToChildNode[token]
+            #print("add_seq_to_prefix_tree: add token is:", token)
             current_depth += 1
 
             if current_depth >= self.max_node_depth or current_depth > len(tokens):
                 # clean up stale clusters before adding a new one.
-                print("end of token add")
+                #print("end of token add")
                 new_cluster_ids = set()
                 for cluster_id in cur_node.templateIds:
                     if cluster_id in self.idToTemplateCluster:
@@ -291,11 +310,11 @@ class Tools(ScopeBase):
                 new_cluster_ids.add(cluster.templateId)
                 cur_node.templateIds = new_cluster_ids
                 cur_node.nodeType = NodeType.LEAF
-                print("cur_node.templateIds:", cur_node.templateIds)
+                #print("cur_node.templateIds:", cur_node.templateIds)
                 break
 
     # seq1 is a template, seq2 is the log to match
-    def get_seq_distance(self, seq1: Sequence[str], seq2: Sequence[str], include_params: bool) -> Tuple[float, int]:
+    def get_seq_distance(self, seq1: Sequence[str], seq2: Sequence[str], posToTokens, include_params: bool) -> Tuple[float, int]:
         assert len(seq1) == len(seq2)
 
         # sequences are empty - full match
@@ -305,8 +324,8 @@ class Tools(ScopeBase):
         sim_tokens = 0
         param_count = 0
 
-        for token1, token2 in zip(seq1, seq2):
-            if token1 == self.param_str:
+        for index, (token1, token2) in enumerate(zip(seq1, seq2)):
+            if token1 == self.param_str and token2 in posToTokens[index]:
                 param_count += 1
                 continue
             if token1 == token2:
@@ -382,7 +401,7 @@ class Tools(ScopeBase):
                    templateIds: Collection[int],
                    tokens: Sequence[str],
                    sim_th: float,
-                   include_params: bool) -> Optional[Template]:
+                   include_params: bool) -> tuple[Optional[Template], float]:
         """
         Find the best match for a log message (represented as tokens) versus a list of clusters
         :param templateIds: List of clusters to match against (represented by their IDs)
@@ -397,7 +416,7 @@ class Tools(ScopeBase):
         max_param_count = -1
         max_cluster = None
 
-        print("templateIds:", templateIds)
+        #print("templateIds:", templateIds)
 
         for id in templateIds:
             # Try to retrieve cluster from cache with bypassing eviction
@@ -405,7 +424,8 @@ class Tools(ScopeBase):
             cluster = self.idToTemplateCluster.get(id)
             if cluster is None:
                 continue
-            cur_sim, param_count = self.get_seq_distance(cluster.getTemplate(), tokens, include_params)
+            cur_sim, param_count = self.get_seq_distance(cluster.getTemplate(), tokens, cluster.getPosToTokenSet(), include_params)
+            #print("templateID:", id, "sim:", cur_sim, "sim_th:", sim_th)
             if cur_sim > max_sim or (cur_sim == max_sim and param_count > max_param_count):
                 max_sim = cur_sim
                 max_param_count = param_count
@@ -413,17 +433,17 @@ class Tools(ScopeBase):
 
         if max_sim >= sim_th:
             match_cluster = max_cluster
-            # print("max_sim:", max_sim, "sim_th:", sim_th)
-            # print("fast_match: tree template:", match_cluster.getTemplate())
-            # print("fast_match: input tokens:", tokens)
-        return match_cluster
+            #print("max_sim:", max_sim, "sim_th:", sim_th)
+            #print("fast_match: tree template:", match_cluster.getTemplate())
+            #print("fast_match: input tokens:", tokens)
+        return match_cluster, max_sim
 
-    def findMatchedTemplateFromPool(self, length, tokens: Sequence[str]) -> Optional[Template]:
+    def findMatchedTemplateFromPool(self, length, tokens: Sequence[str]) -> tuple[Template]:
         if length not in self.lengthToTemplateIds:
             return None
         templateIds = self.lengthToTemplateIds.get(length)
-        print("length:", length, "size is:", len(templateIds))
-        matchedTemplate = self.fast_match(templateIds, tokens, self.sim_th, False)
+        #print("length:", length, "size is:", len(templateIds))
+        matchedTemplate, _ = self.fast_match(templateIds, tokens, self.sim_th, False)
         return matchedTemplate
 
     def updateTemplateOfPool(self, template: Template, newTemplateStr: Sequence[str]) -> None:
@@ -437,67 +457,83 @@ class Tools(ScopeBase):
                     root_node: Node,
                     tokens: Sequence[str],
                     sim_th: float,
-                    include_params: bool) -> tuple[Template, Template]:
-        fw = self.tree_search(root_node, tokens, SequenceType.FORWARD, sim_th, include_params)
-        rv =  self.tree_search(root_node, tokens, SequenceType.REVERSE, sim_th, include_params)
-        return fw, rv
+                    include_params: bool) -> tuple[Optional[Template], float]:
+        result = self.tree_search(root_node, tokens, SequenceType.FORWARD, sim_th, include_params)
+        if result is not None:
+            fw, fw_sim = result
+        else:
+            fw, fw_sim = None, 0.0
+        result =  self.tree_search(root_node, tokens, SequenceType.REVERSE, sim_th, include_params)
+        if result is not None:
+            rv, rv_sim = result
+        else:
+            rv, rv_sim = None, 0.0
+        return (fw, fw_sim), (rv, rv_sim)
 
     def tree_search(self,
                     root_node: Node,
                     tokens: Sequence[str],
                     seq_type: SequenceType,
                     sim_th: float,
-                    include_params: bool) -> Optional[Template]:
+                    include_params: bool) -> tuple[Optional[Template], float]:
 
         # at first level, children are grouped by token (word) count
         token_count = len(tokens)
-        print("token_count:", token_count)
+        #print("token_count:", token_count)
         cur_node = root_node.keyToChildNode.get(str(token_count))
-        print("length node:", cur_node)
+        #print("length node:", cur_node)
         # no template with same token count yet
         if cur_node is None:
-            return None
+            return None, 0.0
 
         cur_node = cur_node.keyToChildNode.get(str(int(seq_type.value)))
-        print("direction node:", cur_node)
+        #print("direction node:", cur_node)
         # no template with matched dirction sequence yet
         if cur_node is None:
-            return None
-        print("cur_node:", cur_node)
+            return None, 0.0
+        #print("cur_node:", cur_node)
         # handle case of empty log string - return the single cluster in that group
         if token_count == 0:
-            return self.idToTemplateCluster.get(cur_node.templateIds[0])
+            return self.idToTemplateCluster.get(cur_node.templateIds[0]), 0.0
 
         # find the leaf node for this log - a path of nodes matching the first N tokens (N=tree depth)
         tokensToMatch = tokens[::1] if seq_type == SequenceType.FORWARD else tokens[::-1]
-        print("tokens:", tokens)
+        #print("tokens:", tokens)
 
         for token in tokensToMatch:
-            print("start to match token:", token)
+            #print("start to match token:", token)
             if cur_node.nodeType == NodeType.LEAF:
-                print("leaf node is matched")
+                #print("leaf node is matched")
                 break
             keyToChildNode = cur_node.keyToChildNode
-            cur_node = keyToChildNode.get(token)
-            if cur_node is None:  # no exact next token exist, try wildcard node
-                cur_node = keyToChildNode.get(self.param_str)
-            if cur_node is None:  # no wildcard node exist
-                return None
+            token_node = keyToChildNode.get(token)
+            parameter_node = keyToChildNode.get(self.param_str)
+            if token_node is not None and parameter_node is not None: # checke whether <*> has preempted token
+                #print("match both token and <*>, token is:", token, "tokensInWildcard:", parameter_node.tokensInWildcard)
+                if token in parameter_node.tokensInWildcard:
+                    cur_node = parameter_node
+                else:
+                    cur_node = token_node
+            elif token_node is not None:
+                cur_node = token_node
+            elif parameter_node is not None:
+                cur_node = parameter_node
+            else:
+                return None, 0.0
             # token is matched:
-            print("branch match:" f'{token} is matched')
-
+            #print("branch match:" f'{token} is matched')
 
         # get best match among all clusters with same prefix, or None if no match is above sim_th
-        print("branch is matched, go to fast_match")
-        cluster = self.fast_match(cur_node.templateIds, tokens, sim_th, include_params)
-        return cluster
+        #print("branch is matched, go to fast_match")
+        cluster, sim = self.fast_match(cur_node.templateIds, tokens, sim_th, include_params)
+        return cluster, sim
 
     def buildTemplateWithInputLog(self, length, tokens: Sequence[str]) -> Optional[Template]:
         template = Template(tokens, self.getNewTemplateId())
         self.idToTemplateCluster[template.templateId] = template
         #self.lengthToTemplateIds[length].append(template.templateId)
         self.lengthToTemplateIds[length].insert(0, template.templateId)
-        print("length:", length, "str is:", tokens)
+        #print("length:", length, "str is:", tokens)
         return template
 
     def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
@@ -507,11 +543,12 @@ class Tools(ScopeBase):
     def add_log_message(self, content: str) -> Tuple[Template, str]:
         content_tokens = self.get_content_as_tokens(content)
         length = len(content_tokens)
-        print("input is:",content_tokens)
+        #print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxinput is:",content_tokens)
         if self.profiler:
             self.profiler.start_section("findMatchedTemplateFromTree")
-        (fwSeqMatchedTemplate, RvSeqMatchedTemplate) = self.findMatchedTemplateFromTree(self.root_node, content_tokens, self.sim_th, False)
-        print("tree_search return is:(", fwSeqMatchedTemplate, RvSeqMatchedTemplate, ")")
+        (fwSeqMatchedTemplate, fwSim), (RvSeqMatchedTemplate, rvSim) = self.findMatchedTemplateFromTree \
+                                                                (self.root_node, content_tokens, self.sim_th, include_params=True)
+        #print("tree_search return is:(", fwSeqMatchedTemplate, RvSeqMatchedTemplate, ")")
         if self.profiler:
             self.profiler.end_section()
 
@@ -539,13 +576,16 @@ class Tools(ScopeBase):
 
             if fwSeqMatchedTemplate is not None and RvSeqMatchedTemplate is not None:
                 if(fwSeqMatchedTemplate.templateId != RvSeqMatchedTemplate.templateId):
-                    print("input is:",content_tokens)
-                    print("fwSeqMatchedTemplate.templateId:", fwSeqMatchedTemplate.templateId)
-                    print("fw template:", fwSeqMatchedTemplate.getTemplateStr())
-                    print("RvSeqMatchedTemplate.templateId:", RvSeqMatchedTemplate.templateId)
-                    print("Rv template:", RvSeqMatchedTemplate.getTemplateStr())
-                assert(fwSeqMatchedTemplate.templateId == RvSeqMatchedTemplate.templateId)
-                matchedPoolTemplate = fwSeqMatchedTemplate
+                    #print("input is:",content_tokens)
+                    #print("fwSeqMatchedTemplate.templateId:", fwSeqMatchedTemplate.templateId)
+                    #print("fw template:", fwSeqMatchedTemplate.getTemplateStr())
+                    #print("RvSeqMatchedTemplate.templateId:", RvSeqMatchedTemplate.templateId)
+                    #print("Rv template:", RvSeqMatchedTemplate.getTemplateStr())
+                    matchedPoolTemplate = fwSeqMatchedTemplate if fwSim > rvSim else RvSeqMatchedTemplate
+                    assert(1)
+                else:
+                    matchedPoolTemplate = fwSeqMatchedTemplate
+                #assert(fwSeqMatchedTemplate.templateId == RvSeqMatchedTemplate.templateId)
             elif fwSeqMatchedTemplate is not None:
                 matchedPoolTemplate = fwSeqMatchedTemplate
             else:
