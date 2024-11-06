@@ -30,7 +30,7 @@ E28,"ciod: Error loading <*>: invalid or missing program image, No such file or 
 E29,ciod: Error reading message prefix after LOAD_MESSAGE on CioStream socket to <*>:<*>: Link has been severed
 E30,"ciod: Error reading message prefix on CioStream socket to <*>:<*>, Connection reset by peer"
 E31,"ciod: Error reading message prefix on CioStream socket to <*>:<*>, Connection timed out"
-E32,"ciod: Error reading message prefix on CioStream socket to <*>:<*>, Connection timed out"
+E32,"ciod: Error reading message prefix on CioStream socket to <*>:<*>, Link has been severed"
 E33,ciod: failed to read message prefix on control stream (CioStream socket to <*>:<*>
 E34,ciod: generated <*> core files for program <*>
 E35,"ciod: In packet from node <*>.<*> (<*>), message code <*> is not <*> or <*> (softheader=<*> <*> <*> <*>)"

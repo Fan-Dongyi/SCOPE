@@ -28,6 +28,7 @@ class TemplateMinerConfig:
         self.mask_suffix = ">"
         self.parameter_extraction_cache_capacity = 3000
         self.parametrize_numeric_tokens = True
+        self.pos_support = False
 
     def load(self, config_filename: str) -> None:
         parser = configparser.ConfigParser()
@@ -66,6 +67,8 @@ class TemplateMinerConfig:
                                                 fallback=self.drain_max_clusters)
         self.parametrize_numeric_tokens = parser.getboolean(section_drain, 'parametrize_numeric_tokens',
                                                             fallback=self.parametrize_numeric_tokens)
+        self.pos_support = parser.getboolean(section_drain, 'pos_support',
+                                         fallback=self.pos_support)
 
         masking_instructions_str = parser.get(section_masking, 'masking',
                                               fallback=str(self.masking_instructions))
@@ -80,3 +83,4 @@ class TemplateMinerConfig:
             instruction = MaskingInstruction(mi['regex_pattern'], mi['mask_with'])
             masking_instructions.append(instruction)
         self.masking_instructions = masking_instructions
+

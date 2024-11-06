@@ -1,0 +1,202 @@
+EventId,EventTemplate
+E1,restart.
+E2,<*> startup succeeded
+E3,"klogd <*>.<*>.<*>, log source = /proc/kmsg started."
+E4,BIOS-provided physical RAM map:
+E5,BIOS-e820: <*> - <*> (usable)
+E6,BIOS-e820: <*> - <*> (reserved)
+E7,<*> HIGHMEM available.
+E8,<*> LOWMEM available.
+E9,zapping low mappings.
+E10,On node <*> totalpages: <*>
+E11,"DMA zone: <*> pages, LIFO batch:<*>"
+E12,"Normal zone: <*> pages, LIFO batch:<*>"
+E13,"HighMem zone: <*> pages, LIFO batch:<*>"
+E14,DMI <*>.<*> present.
+E15,ACPI disabled because your bios is from <*> and too old
+E16,You can enable it with acpi=force
+E17,Built <*> zonelists
+E18,Kernel command line: ro root=LABEL=/ rhgb quiet
+E19,mapped 4G/4G trampoline to <*>.
+E20,Initializing CPU#<*>
+E21,"CPU <*> irqstacks, hard=<*> soft=<*>"
+E22,PID hash table entries: 512 (order <*>: <*> bytes)
+E23,Detected <*>.<*> MHz processor.
+E24,Using tsc for high-res timesource
+E25,Console: colour VGA+ <*>
+E26,Security Scaffold v<*>.<*>.<*> initialized
+E27,SELinux:  Initializing.
+E28,SELinux:  Starting in permissive mode
+E29,"There is already a security framework initialized, register_security failed."
+E30,Failure registering capabilities with the kernel
+E31,selinux_register_security:  Registering secondary module capability
+E32,Capability LSM initialized
+E33,"Dentry cache hash table entries: <*> (order: <*>, <*> bytes)"
+E34,"Inode-cache hash table entries: <*> (order: <*>, <*> bytes)"
+E35,"Mount-cache hash table entries: <*> (order: <*>, <*> bytes)"
+E36,Version <*>.<*>.<*> Starting
+E37,"CPU: L1 I cache: <*>, L1 D cache: <*>"
+E38,CPU: L2 cache: <*>
+E39,Intel machine check architecture supported.
+E40,Intel machine check reporting enabled on CPU#<*>.
+E41,CPU: Intel Pentium III (Coppermine) stepping <*>
+E42,Enabling fast FPU save and restore... done.
+E43,Enabling unmasked SIMD FPU exception support... done.
+E44,Checking 'hlt' instruction... OK.
+E45,POSIX conformance testing by UNIFIX
+E46,NET: Registered protocol family <*>
+E47,"PCI: PCI BIOS revision <*>.<*> entry at <*>, last bus=<*>"
+E48,PCI: Using configuration type <*>
+E49,mtrr: v<*>.<*> (<*>)
+E50,ACPI: Subsystem revision <*>
+E51,ACPI: Interpreter disabled.
+E52,Linux Plug and Play Support v<*>.<*> (c) Adam Belay
+E53,usbcore: registered new driver usbfs
+E54,usbcore: registered new driver hub
+E55,ACPI: ACPI tables contain no PCI IRQ routing entries
+E56,PCI: Invalid ACPI-PCI IRQ routing table
+E57,Initializing random number generator:  succeeded
+E58,PCI: Probing PCI hardware
+E59,PCI: Probing PCI hardware (bus <*>)
+E60,Transparent bridge - <*>
+E61,PCI: Using IRQ router PIIX/ICH [<*>/<*>] at <*>
+E62,audit(<*>.<*>:<*>): initialized
+E63,"Total HugeTLB memory allocated, <*>"
+E64,Starting pcmcia:  succeeded
+E65,VFS: Disk quotas dquot_<*>.<*>.<*>
+E66,SELinux:  Registering netfilter hooks
+E67,Initializing Cryptographic API
+E68,pci_hotplug: PCI Hot Plug PCI Core version: <*>.<*>
+E69,isapnp: Scanning for PnP cards...
+E70,isapnp: No Plug & Play device found
+E71,Real Time Clock Driver v<*>.<*>
+E72,Linux agpgart interface v<*>.<*> (c) Dave Jones
+E73,agpgart: Detected an Intel i810 E Chipset.
+E74,agpgart: Maximum main memory to use for agp memory: <*>
+E75,agpgart: detected <*> dedicated video ram.
+E76,HCI daemon ver <*>.<*> started
+E77,Setting network parameters:  succeeded
+E78,agpgart: AGP aperture is <*> @ <*>
+E79,sdpd v<*>.<*> started
+E80,Bringing up loopback interface:  succeeded
+E81,Bluetooth: Core ver <*>.<*>
+E82,Bluetooth: HCI device and connection manager initialized
+E83,Bluetooth: HCI socket layer initialized
+E84,Bluetooth: L2CAP ver <*>.<*>
+E85,Bluetooth: L2CAP socket layer initialized
+E86,Bluetooth: RFCOMM ver <*>.<*>
+E87,Bluetooth: RFCOMM socket layer initialized
+E88,Bluetooth: RFCOMM TTY layer initialized
+E89,lp0: using parport0 (polling).
+E90,lp0: console ready
+E91,succeeded
+E92,creating device node '/udev/<*>'
+E93,*** info [<*>(<*>)]:
+E94,session opened for user <*> by (uid=<*>)
+E95,session closed for user <*>
+E96,started.
+E97,Starting background readahead:
+E98,Starting readahead:  succeeded
+E99,using <*> CPU
+E100,loading configuration from '/etc/named.conf'
+E101,listening on IPv4 interface <*> <*>.<*>.<*>.<*>#<*>
+E102,kernel time sync status <*>
+E103,couldn't add command channel <*>: not found
+E104,running
+E105,"rsyncd version <*>.<*>.<*> starting, listening on port <*>"
+E106,<*> succeeded
+E107,messagebus -TERM succeeded
+E108,<*> shutdown succeeded
+E109,Stopping Canna server: succeeded
+E110,Stopping MySQL:  succeeded
+E111,Stopping squid:
+E112,.
+E113,Stopping squid:  succeeded
+E114,<*>  shutdown failed
+E115,smartd received signal 15: Terminated
+E116,smartd is exiting (exit status 0)
+E117,shutting down
+E118,no longer listening on <*>
+E119,exiting
+E120,Exiting
+E121,You can enable it with acpi=force
+E122,kernel time sync disabled <*>
+E123,kernel time sync enabled <*>
+E124,connection from <*> (<*>) at <*>:<*>:<*>
+E125,<*> failed
+E126,removing device node '/udev/<*>'
+E127,ALERT exited abnormally with [1]
+E128,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>   user=<*>
+E129,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>
+E130,check pass; user unknown
+E131,1 more authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>   user=<*>
+E132,ANONYMOUS FTP LOGIN FROM <*> (<*>)
+E133,Received SNMP packet(s) from <*>
+E134,getpeername (ftpd): Transport endpoint is not connected
+E135,warning: can't get client address: Connection reset by peer
+E136,User unknown timed out after <*> seconds at <*>:<*>:<*> <*>
+E137,Starting MySQL:  succeeded
+E138,"configure: keyword ""authenticate"" unknown, line ignored"
+E139,precision = <*>.<*> usec
+E140,shutting down for system reboot
+E141,Switching to runlevel: 6
+E142,terminating
+E143,NET-SNMP version <*>.<*>.<*>
+E144,Squid Parent: child process <*> started
+E145,Squid Parent: child process <*> exited with status <*>
+E146,Started working: <*> available services
+E147,Service telnet failed to start and is deactivated.
+E148,No such internal service: services/stream - DISABLING
+E149,Started gpm successfully. Entered daemon mode.
+E150,irw_killserver:cannaserver end
+E151,sshd -TERM succeeded
+E152,ntpd exiting on signal <*>
+E153,Kernel logging (proc) stopped.
+E154,Kernel log daemon terminating.
+E155,audit: initializing netlink socket (disabled)
+E156,imps2: Auto-detected intellimouse PS/2
+E157,net.ipv4.conf.default.rp_filter = <*>
+E158,kernel.sysrq = <*>
+E159,parport0: irq <*> detected
+E160,Saving random seed:  succeeded
+E161,"Caught signal <*>, un-registering and exiting."
+E162,Mounting other filesystems:  succeeded
+E163,file descriptor of service comsat has been closed
+E164,select reported EBADF but no bad file descriptors were found
+E165,"Warning!  Could not relabel  with system_u:object_r:devpts_t, not relabeling."
+E166,starting BIND <*>.<*>.<*> -u named -t /var/named/chroot
+E167,apm: BIOS version <*>.<*> Flags <*> (Driver version <*>.<*>)
+E168,"Dquot-cache hash table entries: <*> (order <*>, <*> bytes)"
+E169,bind failed (Address already in use (errno = <*>)). service = telnet
+E170,xinetd Version <*>.<*>.<*> started with libwrap loadavg options compiled in.
+E171,frequency initialized <*>.<*> PPM from /var/lib/ntp/drif
+E172,Received TERM or STOP signal...  shutting down
+E173,ip_tables: (C) <*>-<*> Netfilter core team
+E174,"SELinux: initialized (dev , type rpc_pipefs), uses genfs_contexts"
+E175,process `syslogd' is using obsolete setsockopt SO_BSDCOMPAT
+E176,ntpd <*>.<*>.<*>@<*>.<*>-r Thu Mar <*> <*>:<*>:<*> EST <*> (<*>)
+E177,<*>+<*> records in
+E178,<*>+<*> records out
+E179,"Memory: <*> available (<*> kernel code, <*> reserved, <*> data, <*> init, <*> highmem)"
+E180,<*> Privoxy(<*>) Info: loading configuration file '/etc/privoxy/config':
+E181,PCI: Found IRQ <*> for device <*>:<*>:<*>.<*>
+E182,FDC <*> is a National Semiconductor PC87306
+E183,3c59x: Donald Becker and others. www.scyld.com/network/vortex.html
+E184,"pam_check_access failed, user does not have proper access: system_u:system_r:kernel_t"
+E185,"synchronized to LOCAL(<*>), stratum=<*>"
+E186,"parport0: PC-style at <*> (<*>) [PCSPP,TRISTATE,EPP]"
+E187,Linux version <*>.<*>.<*><*>.<*> (bhcompile@bugs.build.redhat.com) (gcc version <*>.<*>.<*> (Red Hat Linux <*>.<*>.<*><*>)) #<*> <*>:<*>:<*> EDT <*>
+E188,^[[60G[  ^[[0;32m
+E189,"Version <*>.<*>.<*> (APM BIOS <*>.<*>, Linux driver <*>.<*>)"
+E190,EXT3-fs: mounted filesystem with ordered data mode.
+E191,"SELinux: initialized (dev hda1, type ext3), uses xattr"
+E192,"SELinux: initialized (dev , type tmpfs), uses transition SIDs"
+E193,IA-32 Microcode Update Driver: v<*>.<*> <tigran@veritas.com>
+E194,microcode: CPU0 already at revision <*> (current=<*>)
+E195,<*>:<*>:<*>.<*>: 3Com PCI 3c905C Tornado at <*>. Vers LK<*>.<*>.<*>
+E196,inserting floppy driver for <*>.<*>.<*>-<*>.<*>
+E197,SCSI subsystem initialized
+E198,Calibrating delay loop... <*>.<*> BogoMIPS
+E199,microcode: No suitable data for cpu <*>
+E200,Floppy drive(s): fd0 is <*>M
+E201,kernel.core_uses_pid = <*>

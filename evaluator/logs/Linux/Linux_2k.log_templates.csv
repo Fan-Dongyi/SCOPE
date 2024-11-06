@@ -117,3 +117,4 @@ E115,VFS: Disk quotas dquot_<*>.<*>.<*>
 E116,warning: can't get client address: Connection reset by peer
 E117,You can enable it with acpi=force
 E118,zapping low mappings.
+E119,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>  user=<*>

@@ -1,0 +1,38 @@
+EventId,EventTemplate
+E1,shutting down for system halt
+E2,<*> shutdown failed
+E3,<*> shutdown succeeded
+E4,Switching to runlevel: <*>
+E5,<*> -TERM succeeded
+E6,Received signal <*>; terminating.
+E7,Exiting...
+E8,Received TERM or STOP signal... shutting down...
+E9,ntpd exiting on signal <*>
+E10,[ib_sm_sweep.c:1264]: Rediscover the subnet
+E11,[ib_sm_sweep.c:1792]: async events require sweep
+E12,[ib_sm_sweep.c:1831]: ********************** NEW SWEEP ********************
+E13,"synchronized to <*>.<*>.<*>.<*>, stratum <*>"
+E14,[ib_sm_sweep.c:1455]: No topology change
+E15,[INFO]: Configuration caused by multicast membership change
+E16,Unmounting NFS filesystems: succeeded
+E17,Kernel log daemon terminating.
+E18,Kernel logging (proc) stopped.
+E19,lockd -KILL succeeded
+E20,"Caught signal <*>, un-registering and exiting."
+E21,session opened for user root by (uid=<*>)
+E22,session closed for user #<*>#
+E23,session closed for user root
+E24,Accepted publickey for root from ::ffff:<*>.<*>.<*>.<*> port <*> ssh2
+E25,RRD_update (/var/lib/ganglia/rrds/C Nodes/cn10/pkts_out.rrd): illegal attempt to update using time <*> when last update time is <*> (minimum one second step)
+E26,data_thread() got not answer from any [Thunderbird_D6] datasource
+E27,[ib_sm_sweep.c:254]: An existing IB node GUID <*> LID <*> was removed
+E28,[ib_sm_sweep.c:1442]: Topology changed
+E29,[INFO]: Generate SM OUT_OF_SERVICE trap for GID=<*>
+E30,[INFO]: Configuration caused by previous GET/SET operation failures
+E31,[INFO]: Configuration caused by discovering removed ports
+E32,"[ib_sm_bringup.c:450]: Active state mismatch GUID=<8>, port=<*>, state <*>, GUID=<*>, port=<*>, state <*>"
+E33,omsad32[2900]: segfault at <*> rip <*> rsp <*> error <*>
+E34,peer disconnected: SNMPv2-SMI::enterprises.<*>.<*>.<*>
+E35,<*> startup succeeded
+E36,succeeded
+E37,<*> startup failed

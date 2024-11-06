@@ -109,7 +109,8 @@ class ScopeBase(ABC):
                  extra_delimiters: Sequence[str] = (),
                  profiler: Profiler = NullProfiler(),
                  param_str: str = "<*>",
-                 parametrize_numeric_tokens: bool = True) -> None:
+                 parametrize_numeric_tokens: bool = True,
+                 pos_support: bool = False) -> None:
         """
         Create a new Scope instance.
 
@@ -141,6 +142,7 @@ class ScopeBase(ABC):
         self.max_clusters = max_clusters
         self.param_str = param_str
         self.parametrize_numeric_tokens = parametrize_numeric_tokens
+        self.pos_support = pos_support
 
         self.id_to_fused_templateCluster: MutableMapping[int, Optional[TemplateCluster]] = {}
         self.fused_templateClusters_cnt = 0

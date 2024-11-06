@@ -18,7 +18,7 @@ sys.path.insert(0, scope_dir)  # Insert at the start of sys.path
 
 from scope import Scope, ScopeBase, LogCluster, TemplateCluster
 from tools import Tools
-#from scope.masking import LogMasker
+from masking import LogMasker
 from persistence_handler import PersistenceHandler
 from simple_profiler import SimpleProfiler, NullProfiler, Profiler
 from template_miner_config import TemplateMinerConfig
@@ -73,10 +73,11 @@ class TemplateMiner:
             extra_delimiters=self.config.drain_extra_delimiters,
             profiler=self.profiler,
             param_str=param_str,
-            parametrize_numeric_tokens=self.config.parametrize_numeric_tokens
+            parametrize_numeric_tokens=self.config.parametrize_numeric_tokens,
+            pos_support = self.config.pos_support
         )
 
-        #self.masker = LogMasker(self.config.masking_instructions, self.config.mask_prefix, self.config.mask_suffix)
+        self.masker = LogMasker(self.config.masking_instructions, self.config.mask_prefix, self.config.mask_suffix)
         self.parameter_extraction_cache: MutableMapping[Tuple[str, bool], str] = \
             LRUCache(self.config.parameter_extraction_cache_capacity)
         self.last_save_time = time.time()
@@ -141,13 +142,14 @@ class TemplateMiner:
     def add_log_message(self, log_message: str) -> Mapping[str, Union[str, int]]:
         self.profiler.start_section("total")
 
-        """
+        logger.debug(f"Input log message: {log_message}")
         self.profiler.start_section("mask")
         masked_content = self.masker.mask(log_message)
-        self.profiler.end_section()"""
-        masked_content = log_message
+        self.profiler.end_section()
+        #masked_content = log_message
 
         self.profiler.start_section("scope")
+        logger.debug(f"Input log message with masked content: {masked_content}")
         cluster, change_type = self.scope.add_log_message(masked_content)
         self.profiler.end_section("scope")
         result: Mapping[str, Union[str, int]] = {
@@ -370,7 +372,7 @@ if __name__ == "__main__":
 
     config = TemplateMinerConfig()
     #config.load(f"{dirname(__file__)}/Drain3/examples/drain3.ini")
-    config.load(os.path.join(os.path.dirname(__file__), "../example/scope.ini"))
+    config.load(os.path.join(os.path.dirname(__file__), "../example/tools.ini"))
     config.profiling_enabled = True
     template_miner = TemplateMiner(config=config)
 

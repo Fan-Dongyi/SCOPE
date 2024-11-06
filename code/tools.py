@@ -12,10 +12,22 @@ from scope import ScopeBase
 from collections import defaultdict
 import logging
 import logging.config
+import re
+import nltk
+import en_core_web_md
+
+nlp = en_core_web_md.load()
+path = nltk.data.find('taggers/averaged_perceptron_tagger')
+if path is None:
+    exit(1)
+else:
+    print(path)
+nltk.data.path.append(path)
+#nltk.download('averaged_perceptron_tagger', download_dir=path)
 
 #logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-#logging.basicConfig(level=logging.DEBUG, format="%(levelname)s - %(message)s")
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+#logging.basicConfig(filename="./tools.log", filemode="w", level=logging.INFO, format="%(levelname)s - %(message)s")
+logging.basicConfig(filename="./tools.log", filemode="w", level=logging.DEBUG, format="%(levelname)s - %(message)s")
 logger = logging.getLogger() # default 'root' name is used
 
 # Example log messages
@@ -25,26 +37,29 @@ logger = logging.getLogger() # default 'root' name is used
 #logger.error("This is an ERROR message")
 
 class Template():
-    def __init__(self, templateTokens: Iterable[str] = "This is a default log template", templateId: int = 0) -> None:
+    def __init__(self, templateTokens: Iterable[str] = "This is a default log template", templateId: int = 0, isPosSupported: bool = False) -> None:
       self.templateId = templateId
       self.matchedLogSize = 1 # there is log matched this template when it's created, so 1 by default
-      self.posToTokenSet = defaultdict(set) # {0:set(), 1:set(), 2:set(), ...}
+      self.preemptedTokenSet = defaultdict(set) # {0:set(preempted token, <*>), 1:set(), 2:set(), ...} it stores the preempted token which would be assigned to <*> node to preempt existing node token in tree
+      self.isPosSupported = isPosSupported
       self.setTemplate(templateTokens)
+      self.setTokenPosTag(templateTokens)
+      self.setTokenOov(templateTokens)
 
     def getTemplateStr(self) -> str:
         return ' '.join(self.templateTokens)
 
-    def getTemplate(self) -> str:
+    def getTemplateTokens(self) -> str:
         return self.templateTokens
 
-    def getPosToTokenSet(self) -> MutableMapping[int, set]:
-        return self.posToTokenSet
+    def getPreemptedTokenSet(self) -> MutableMapping[int, set]:
+        return self.preemptedTokenSet
 
     def setTemplate(self, templateTokens: Iterable[str]) -> None:
         self.templateTokens = templateTokens
         for index, token in enumerate(templateTokens): # start from 0
-            self.posToTokenSet[index].add(token)
-            logger.debug("posToTokenSet[{}]:{}".format(index, self.posToTokenSet[index]))
+            self.preemptedTokenSet[index].add(token)
+            logger.debug("preemptedTokenSet[{}]:{}".format(index, self.preemptedTokenSet[index]))
 
     def increaseMatchedLogSize(self) -> None:
         self.matchedLogSize += 1
@@ -52,6 +67,28 @@ class Template():
     def getMatchedLogSize(self) -> int:
         return self.matchedLogSize
 
+    def getTokenPosTag(self) -> MutableMapping[int, str]:
+        return self.tokenPosTag
+
+    def setTokenPosTag(self, templateTokens: Iterable[str]) -> None:
+        self.tokenPosTag = self.tokensPosTagger(templateTokens)
+
+    def tokensPosTagger(self, tokens: Iterable[str]) -> Iterable[str]:
+        if self.isPosSupported:
+            lowercaseTokens = [element.lower() for element in tokens]
+            posTagger = nltk.pos_tag(lowercaseTokens)
+            tokenPosTag = [pos for token, pos in posTagger]
+        else:
+            tokenPosTag = ["unknown"] * len(tokens)
+        logger.debug("template token: %s", tokens)
+        logger.debug("tokenPosTag: %s", tokenPosTag)
+        return tokenPosTag
+
+    def setTokenOov(self, templateTokens: Iterable[str]) -> None:
+        self.tokenOov = [nlp(token)[0].is_oov for token in templateTokens]
+
+    def getTokenOov(self) -> MutableMapping[int, bool]:
+        return self.tokenOov
 
 _T = TypeVar("_T")
 if TYPE_CHECKING:
@@ -106,7 +143,8 @@ class Tools(ScopeBase):
                  extra_delimiters: Sequence[str] = (),
                  profiler: Profiler = NullProfiler(),
                  param_str: str = "<*>",
-                 parametrize_numeric_tokens: bool = True) -> None:
+                 parametrize_numeric_tokens: bool = True,
+                 pos_support: bool = False) -> None:
         """
         Create a new Scope instance.
 
@@ -138,10 +176,12 @@ class Tools(ScopeBase):
         self.max_clusters = max_clusters
         self.param_str = param_str
         self.parametrize_numeric_tokens = parametrize_numeric_tokens
+        self.pos_support = pos_support
 
         self.idToTemplateCluster: MutableMapping[int, Template] = {}
         self.lengthToTemplateIds = defaultdict(list)
         self.templateId = 0
+        #print("6666666666666666666666666666666666666   ", self.param_str)
 
     def getNewTemplateId(self) -> int:
         self.templateId += 1
@@ -184,11 +224,110 @@ class Tools(ScopeBase):
             out_str = '\t' * (depth + 1) + str(cluster)
             #print(out_str, file=file)
 
+    def split_string(self, s):
+        # 定义要匹配的标点
+        #punctuation_pattern = r'^[,.\!?[\];:]+|[,.\!?[\];:]+$'
+        punctuation_pattern = r'^[,.\!?;:]+|[,.\!?;:]+$'
+
+        # 使用正则表达式找到前后的标点符号
+        match = re.match(punctuation_pattern, s)
+        if match:
+            # 如果匹配到了前面的标点，获取前面的标点符号
+            front_punctuation = match.group(0)
+        else:
+            front_punctuation = ''
+
+        # 去除前面的标点符号
+        stripped_s = re.sub(r'^[,.\!?;:]+', '', s)
+
+        # 使用正则表达式找到后面的标点符号
+        match = re.search(punctuation_pattern, stripped_s)
+        if match:
+            # 如果匹配到了后面的标点，获取后面的标点符号
+            back_punctuation = match.group(0)
+            # 去除后面的标点符号
+            stripped_s = re.sub(r'[,.\!?;:]+$', '', stripped_s)
+        else:
+            back_punctuation = ''
+
+        # 初始化结果列表
+        result = []
+
+        # Case where both ':' and '=' are in the string
+        if '=' in stripped_s and ':' in stripped_s:
+            # Find the first occurrence and split accordingly
+            if stripped_s.index('=') < stripped_s.index(':'):
+                left, sep1, remainder = re.split(r"(=)", stripped_s, 1)
+                mid, sep2, right = re.split(r"(:)", remainder, 1)
+            else:
+                left, sep1, remainder = re.split(r"(:)", stripped_s, 1)
+                mid, sep2, right = re.split(r"(=)", remainder, 1)
+            result.extend([left, sep1, mid, sep2, right])
+
+        # Case where only '=' is present
+        elif stripped_s.count('=') == 1:
+            left, sep, right = re.split(r"(=)", stripped_s, 1)
+            result.extend([left, sep, right])
+
+        # Case where only ':' is present
+        elif stripped_s.count(':') == 1:
+            left, sep, right = re.split(r"(:)", stripped_s, 1)
+            result.extend([left, sep, right])
+
+        # Case where neither ':' nor '=' is present
+        else:
+            result.append(stripped_s)
+
+        # 将前后的标点符号作为单独的 token 添加到结果中
+        if front_punctuation:
+            result.insert(0, front_punctuation)  # 添加开头的标点
+        if back_punctuation:
+            result.append(back_punctuation)  # 添加结尾的标点
+
+        return result
+
+    def param_str_split_string(self, s):
+        pattern = r"(.*?)(<[^:]+>)(.*)"
+        match = re.match(pattern, s)
+        if 0: #match:
+            parts = list(match.groups())
+            parts = [p for p in parts if p]
+            return parts
+        else:
+            return [s]
+
     def get_content_as_tokens(self, content: str) -> Sequence[str]:
         content = content.strip()
+        #print("content: ", content)
         for delimiter in self.extra_delimiters:
+            #print("delimeiter is: ", delimiter )
             content = content.replace(delimiter, " ")
         content_tokens = content.split()
+        #print("content tokens: ", content_tokens)
+        if (self.pos_support):
+            new_tokens = []
+            for token in content_tokens:
+                parStrSplitTokens = self.param_str_split_string(token)
+                new_tokens.extend(parStrSplitTokens)
+            split_tokens = []
+            for token in new_tokens:
+                #print("token is====================== ", token)
+                if (re.match(r"\d{1,3}(\.\d{1,3}){3}(:\d{1,5})?$", token) or
+                    re.match(r"\d{1,2}:\d{2}(:\d{2})?$", token) or
+                    re.match(r"^<[^:]+>$", token)):
+                    split_tokens.append(token)
+                else:
+                    #print("need split token is====================== ", token)
+                    # 将前后标点（如 , . ! ?）与中间内容分离；始终分离 = 和 :
+                    punc_split_tokens = self.split_string(token)
+                    # 去除空匹配并添加到新列表
+                    #print("split token is============= ", split_tokens)
+                    split_tokens.extend([t for t in punc_split_tokens if t])
+            content_tokens = split_tokens
+                # 匹配 IP 地址或时间格式不分隔的 token
+        logger.debug("content tokens reg: %s", content_tokens)
+
+
         return content_tokens
 
 
@@ -221,8 +360,8 @@ class Tools(ScopeBase):
         return target
 
     def add_seq_to_prefix_tree(self, root_node: Node, cluster: Template, seqType: SequenceType) -> None:
-        tokens = cluster.getTemplate()
-        posToTokenSet = cluster.getPosToTokenSet()
+        tokens = cluster.getTemplateTokens()
+        preemptedTokenSet = cluster.getPreemptedTokenSet()
         token_count = len(tokens)
         logger.debug("existing %s", tokens)
         token_count_str = str(token_count)
@@ -269,14 +408,14 @@ class Tools(ScopeBase):
             if token == self.param_str:
                 if self.param_str not in cur_node.keyToChildNode: # * node always can be added as room is reserved
                     new_node = Node(NodeType.INTERMEDIATE)
-                    new_node.tokensInWildcard = posToTokenSet[index] # <*> node is new created, set node.tokensInWildcard = preempted tokens of template
-                    logger.debug(f"posToTokenSet[{index}]: {posToTokenSet[index]}")
+                    new_node.tokensInWildcard = preemptedTokenSet[index] # <*> node is new created, set node.tokensInWildcard = preempted tokens of template
+                    logger.debug(f"preemptedTokenSet[{index}]: {preemptedTokenSet[index]}")
                     logger.debug("no <*>, update tokensInWildcard: %s", new_node.tokensInWildcard)
                     cur_node.keyToChildNode[self.param_str] = new_node
                     cur_node = new_node
                 else:
                     new_node = cur_node.keyToChildNode[self.param_str]
-                    new_node.tokensInWildcard = new_node.tokensInWildcard | posToTokenSet[index] # <*> node exists, add preempted tokens of template into node.tokensInWildcard
+                    new_node.tokensInWildcard = new_node.tokensInWildcard | preemptedTokenSet[index] # <*> node exists, add preempted tokens of template into node.tokensInWildcard
                     cur_node = new_node
                     logger.debug(" <*> exists, update tokensInWildcard: %s", new_node.tokensInWildcard)
             else:
@@ -326,7 +465,8 @@ class Tools(ScopeBase):
                 break
 
     # seq1 is a template, seq2 is the log to match
-    def get_seq_distance(self, seq1: Sequence[str], seq2: Sequence[str], posToTokens, include_params: bool) -> Tuple[float, int]:
+    def get_seq_distance(self, seq1: Sequence[str], seq2: Sequence[str], \
+                         preemptedTokens, tokenPosTag, SrcTokenOov, DestTokenOov, include_params: bool) -> Tuple[float, int]:
         assert len(seq1) == len(seq2)
 
         # sequences are empty - full match
@@ -336,12 +476,138 @@ class Tools(ScopeBase):
         sim_tokens = 0
         param_count = 0
 
+        nltk_static_pos_tags = [
+            "CC",    # Coordinating conjunction
+            #"CD",    # Cardinal number
+            "DT",    # Determiner
+            "EX",    # Existential there
+            "FW",    # Foreign word
+            "IN",    # Preposition or subordinating conjunction
+            #"JJ",    # Adjective
+            #"JJR",   # Adjective, comparative
+            #"JJS",   # Adjective, superlative
+            "LS",    # List item marker
+            "MD",    # Modal
+            #"NN",    # Noun, singular or mass
+            #"NNS",   # Noun, plural
+            #"NNP",   # Proper noun, singular
+            #"NNPS",  # Proper noun, plural
+            "PDT",   # Predeterminer
+            "POS",   # Possessive ending
+            "PRP",   # Personal pronoun
+            "PRP$",  # Possessive pronoun
+            "RB",    # Adverb
+            "RBR",   # Adverb, comparative
+            "RBS",   # Adverb, superlative
+            "RP",    # Particle
+            "SYM",   # Symbol
+            "TO",    # to
+            "UH",    # Interjection
+            #"VB",    # Verb, base form
+            #"VBD",   # Verb, past tense
+            #"VBG",   # Verb, gerund or present participle
+            #"VBN",   # Verb, past participle
+            #"VBP",   # Verb, non-3rd person singular present
+            #"VBZ",   # Verb, 3rd person singular present
+            #"WDT",   # Wh-determiner
+            #"WP",    # Wh-pronoun
+            #"WP$",   # Possessive wh-pronoun
+            #"WRB"    # Wh-adverb
+        ]
+        def is_determinated_static_part(posTag: str) -> bool:
+            if any(i in posTag for i in nltk_static_pos_tags):
+                return True
+            else:
+                return False
+        logger.debug("Template to match: %s", seq1) # seq1 is the template
+
+        if self.pos_support:
+            lowercaseTokens = [element.lower() for element in seq2]
+            posTagger = nltk.pos_tag(lowercaseTokens)
+            destTokenPosTag = [pos for token, pos in posTagger]
+            logger.debug("destTokenPosTag: %s", destTokenPosTag)
+
         for index, (token1, token2) in enumerate(zip(seq1, seq2)):
-            if token1 == self.param_str and token2 in posToTokens[index]:
-                param_count += 1
-                continue
+            logger.debug("index: %s, template token: %s, input token: %s", index, token1, token2)
             if token1 == token2:
                 sim_tokens += 1
+            #elif re.search(r"<:(\*|\w+):>", token1) or re.search(r"<:(\*|\w+):>", token2):
+            #elif re.search(r"<:[^:]+:>", token1) or re.search(r"<:[^:]+:>", token2):
+            elif re.match(r"<[^:]+>", token1) or re.match(r"<[^:]+>", token2):
+                if token2: #in preemptedTokens[index]:
+                    param_count += 1
+            elif 0: #token is different, if token is judged to static part, similar distance is 0
+                if self.pos_support:
+                    #if not self.has_numbers(token1) and not self.has_numbers(token2) and not SrcTokenOov[index] and not nlp(token2)[0].is_oov: # both token is normal words
+                    if not self.has_numbers(token2):
+                        if is_determinated_static_part(tokenPosTag[index]) and (index == 0 or (seq2[index-1] != ":" and seq2[index-1] != "=")):
+                            logger.debug(f"static part is matched b/w: {token1} and {token2}, POS type: {tokenPosTag[index]}")
+                            return 0.0, 0
+                        else:
+                            if not SrcTokenOov[index]: #and not nlp(token2)[0].is_oov: # both token is normal words
+                                if (("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index]) \
+                                    and (index == 0 or (seq1[index-1] != ":" and seq1[index-1] != "="))): #and not "IN" in tokenPosTag[index-1] and not "TO" in tokenPosTag[index-1]))):
+                                    logger.debug(f"token is judged to static part: {token1}, {token2}, {tokenPosTag[index]}")
+                                    return 0.0, 0
+                                else:
+                                    logger.debug(f"token is not judged to static part: {token1}, {token2}, {tokenPosTag[index]}")
+                            else:
+                                logger.debug(f"token: {token1}, {token2} is OOV, to be dynamic part")
+                    else:
+                            logger.debug(f"token: {token1}, {token2} has numbers or OOV, to be dynamic part")
+
+            elif 1:
+                if self.pos_support:
+                    if not self.has_numbers(token1) and not self.has_numbers(token2) and not re.search(r"<[^:]+>", token1) and not re.search(r"<[^:]+>", token2):
+                        if len(seq1) == 1:
+                            logger.debug(f"token: {token1}, {token2} is the only token, to be static part")
+                            return 0.0, 0
+                        if is_determinated_static_part(tokenPosTag[index]) or is_determinated_static_part(destTokenPosTag[index]):
+                           logger.debug(f"static part is matched: {token1}: POS type: {tokenPosTag[index]} or {token2}: POS type: {destTokenPosTag[index]}")
+                           return 0.0, 0
+                        elif tokenPosTag[index][0:1] != destTokenPosTag[index][0:1]:
+                            logger.debug(f"token: {token1}, {token2} has different POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}")
+                            return 0.0, 0
+                        #elif not SrcTokenOov[index]:# or not nlp(token2)[0].is_oov:
+                        #elif not nlp(token2)[0].is_oov:
+                        else:
+
+                            if ("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index] or \
+                                "VB" in destTokenPosTag[index] or "JJ" in destTokenPosTag[index] or "NN" in destTokenPosTag[index]):
+
+                                if (index == 0 and (tokenPosTag[index+1].startswith("VB") or destTokenPosTag[index+1].startswith("VB"))):
+                                    logger.debug(f"token: {token1}, {token2} is the first token and followed by VB, to be dynamic part")
+                                    continue
+
+                                if (any(char in seq1[index] for char in ['_', '/']) or any(char in seq2[index] for char in ['_', '/'])):
+                                    logger.debug(f"token: {token1}, {token2} has special character, to be dynamic part")
+                                    continue
+
+                                if index > 0:
+                                    if (seq1[index-1] == ':' or seq2[index-1] == ':'):
+                                        if (index == len(seq1)-1 or (seq1[index+1] in {",", ";", "."} or seq2[index+1] in {",", ";", "."})) and (nlp(token1)[0].is_oov or nlp(token2)[0].is_oov):
+                                            continue
+
+                                if (index == 0 or (seq1[index-1] != "=" \
+                                    and tokenPosTag[index-1] != "IN" and tokenPosTag[index-1] != "TO")) \
+                                    and (index == 0 or (seq2[index-1] != "=" \
+                                    and destTokenPosTag[index-1] != "IN" and destTokenPosTag[index-1] != "TO")):
+                                    logger.debug(f"token: {token1}, {token2} has same POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}. previous token: {seq1[index-1]}, POS: {tokenPosTag[index-1]}")
+                                    return 0.0, 0
+
+                                if (index == 0 or (seq1[index-1] != ":" and seq1[index-1] != "=" \
+                                    and tokenPosTag[index-1] != "IN" and tokenPosTag[index-1] != "TO")) \
+                                    and (index == 0 or (seq2[index-1] != ":" and seq2[index-1] != "=" \
+                                    and destTokenPosTag[index-1] != "IN" and destTokenPosTag[index-1] != "TO")):
+                                    logger.debug(f"token: {token1}, {token2} has same POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}. previous token: {seq1[index-1]}, POS: {tokenPosTag[index-1]}")
+                                    return 0.0, 0
+
+                                if index+1<len(seq1) and (seq1[index+1] in {"=", ":"} or seq2[index+1] in {"=", ":"}):
+                                    logger.debug(f"token: {token1}, {token2} is followed by = or : , to be static part")
+                                    return 0.0, 0
+                    else:
+                        logger.debug(f"token: {token1}, {token2} has numbers or parameter string, to be dynamic part")
+
 
         if include_params:
             sim_tokens += param_count
@@ -428,7 +694,8 @@ class Tools(ScopeBase):
         max_param_count = -1
         max_cluster = None
 
-        logger.debug("templateIds: %s", templateIds)
+        logger.debug("need to compare to following templateIds: %s", templateIds)
+        destTokenOov = []#[nlp(token)[0].is_oov for token in tokens]
 
         for id in templateIds:
             # Try to retrieve cluster from cache with bypassing eviction
@@ -436,7 +703,7 @@ class Tools(ScopeBase):
             cluster = self.idToTemplateCluster.get(id)
             if cluster is None:
                 continue
-            cur_sim, param_count = self.get_seq_distance(cluster.getTemplate(), tokens, cluster.getPosToTokenSet(), include_params)
+            cur_sim, param_count = self.get_seq_distance(cluster.getTemplateTokens(), tokens, cluster.getPreemptedTokenSet(), cluster.getTokenPosTag(), cluster.getTokenOov(), destTokenOov, include_params)
             logger.debug(f"templateID:, {id}, sim:, {cur_sim}, sim_th:, {sim_th}")
             if cur_sim > max_sim or (cur_sim == max_sim and param_count > max_param_count):
                 max_sim = cur_sim
@@ -446,7 +713,7 @@ class Tools(ScopeBase):
         if max_sim >= sim_th:
             match_cluster = max_cluster
             logger.debug(f"max_sim:, {max_sim}, sim_th:, {sim_th}")
-            logger.debug("fast_match: tree template: %s", match_cluster.getTemplate())
+            logger.debug("fast_match: tree template: %s", match_cluster.getTemplateTokens())
             logger.debug("fast_match: input tokens: %s", tokens)
         return match_cluster, max_sim
 
@@ -455,13 +722,13 @@ class Tools(ScopeBase):
             return None
         templateIds = self.lengthToTemplateIds.get(length)
         logger.debug("length: {}, size is: {}".format(length, len(templateIds)))
-        matchedTemplate, _ = self.fast_match(templateIds, tokens, self.sim_th, False)
+        matchedTemplate, _ = self.fast_match(templateIds, tokens, self.sim_th, True)
         return matchedTemplate
 
-    def updateTemplateOfPool(self, template: Template, newTemplateStr: Sequence[str]) -> None:
-        template.setTemplate(newTemplateStr)
+    def updateTemplateOfPool(self, template: Template, newTemplateTokens: Sequence[str]) -> None:
+        template.setTemplate(newTemplateTokens)
         template.increaseMatchedLogSize()
-        # lst = self.lengthToTemplateIds[len(newTemplateStr)]
+        # lst = self.lengthToTemplateIds[len(newTemplateTokens)]
         # if template.templateId in lst:
         #     lst.append(lst.pop(lst.index(template.templateId)))
 
@@ -541,7 +808,7 @@ class Tools(ScopeBase):
         return cluster, sim
 
     def buildTemplateWithInputLog(self, length, tokens: Sequence[str]) -> Optional[Template]:
-        template = Template(tokens, self.getNewTemplateId())
+        template = Template(tokens, self.getNewTemplateId(), isPosSupported=self.pos_support)
         self.idToTemplateCluster[template.templateId] = template
         #self.lengthToTemplateIds[length].append(template.templateId)
         self.lengthToTemplateIds[length].insert(0, template.templateId)
@@ -575,8 +842,8 @@ class Tools(ScopeBase):
                 matchedPoolTemplate = self.buildTemplateWithInputLog(length, content_tokens)
                 update_type = "created"
             else: # similar template is found in pool but not in tree, need update template and add to tree
-                newTemplateStr = self.create_template(content_tokens, matchedPoolTemplate.getTemplate())
-                self.updateTemplateOfPool(matchedPoolTemplate, newTemplateStr)
+                newTemplateTokens = self.create_template(content_tokens, matchedPoolTemplate.getTemplateTokens())
+                self.updateTemplateOfPool(matchedPoolTemplate, newTemplateTokens)
                 update_type = "updated"
             self.addTemplateSeqToPrefixTree(self.root_node, matchedPoolTemplate)
 
@@ -602,10 +869,10 @@ class Tools(ScopeBase):
             else:
                 matchedPoolTemplate = RvSeqMatchedTemplate
 
-            newTemplateStr = self.create_template(content_tokens, matchedPoolTemplate.getTemplate())
-            if newTemplateStr != matchedPoolTemplate.getTemplate():
+            newTemplateTokens = self.create_template(content_tokens, matchedPoolTemplate.getTemplateTokens())
+            if newTemplateTokens != matchedPoolTemplate.getTemplateTokens():
                 update_type = "updated"
-                self.updateTemplateOfPool(matchedPoolTemplate, newTemplateStr)
+                self.updateTemplateOfPool(matchedPoolTemplate, newTemplateTokens)
                 self.addTemplateSeqToPrefixTree(self.root_node, matchedPoolTemplate)
             else:
                 update_type = "none"
