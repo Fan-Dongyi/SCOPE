@@ -1240,7 +1240,7 @@ LineId,Month,Date,Time,Level,Component,PID,Content,EventId,EventTemplate
 1239,Jul,11,04:08:37,combo,su(pam_unix),32608,session opened for user news by (uid=0),E121,session opened for user <*> by <*>
 1240,Jul,11,04:08:38,combo,su(pam_unix),32608,session closed for user news,E101,session closed for user <*>
 1241,Jul,11,11:33:13,combo,gdm(pam_unix),2803,check pass; user unknown,E27,check pass; user unknown
-1242,Jul,11,11:33:13,combo,gdm(pam_unix),2803,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=,E120,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>
+1242,Jul,11,11:33:13,combo,gdm(pam_unix),2803,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=,E15,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>
 1243,Jul,11,11:33:17,combo,gdm-binary,2803,Couldn't authenticate user,E31,Couldn't authenticate user
 1244,Jul,11,17:58:16,combo,sshd(pam_unix),1325,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=211.137.205.253  user=root,E119,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>  user=<*>
 1245,Jul,11,17:58:16,combo,sshd(pam_unix),1329,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=211.137.205.253  user=root,E119,authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=<*>  user=<*>

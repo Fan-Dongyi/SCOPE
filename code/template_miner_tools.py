@@ -74,6 +74,7 @@ class TemplateMiner:
             profiler=self.profiler,
             param_str=param_str,
             parametrize_numeric_tokens=self.config.parametrize_numeric_tokens,
+            bi_tree_support = self.config.bi_tree_support,
             pos_support = self.config.pos_support
         )
 

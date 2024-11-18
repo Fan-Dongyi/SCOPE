@@ -150,15 +150,19 @@ benchmark_settings = {
 
 benchmark_settings1 = {
 
-    'Windows': {
-        'log_file': 'Windows/Windows_2k.log',
-        'log_format': '<Date> <Time>, <Level>                  <Component>    <Content>',
+
+
+    'Mac': {
+        'log_file': 'Mac/Mac_2k.log',
+        'log_format': '<Month>  <Date> <Time> <User> <Component>\[<PID>\]( \(<Address>\))?: <Content>',
+        #'regex': [r'([\w-]+\.){2,}[\w-]+'],
         'regex': [],
+        'index_list': [0, 1, 2, 3, 4],
         'filter': [],
-        'index_list': [0, ],
-        'st': 0.7,
-        'depth': 4
+        'st': 0.6,
+        'depth': 7
         },
+
 
     'Linux': {
         'log_file': 'Linux_corrected/Linux_2k.log',
@@ -169,6 +173,15 @@ benchmark_settings1 = {
         'index_list': [0, ],
         'st': 0.1,
         'depth': 5,
+        },
+    'HealthApp': {
+        'log_file': 'HealthApp/HealthApp_2k.log',
+        'log_format': '<Time>\|<Component>\|<Pid>\|<Content>',
+        'regex': [],
+        'filter': [],
+        'index_list': [0, 1, 2, 3, 4],
+        'st': 0.4,
+        'depth': 8
         },
 
 }
@@ -338,7 +351,7 @@ benchmark_settings = {
         "filter": [r' \(\d+(\.\d+)?\s(?:K|M)B\)', ],
         'index_list': [0, ],
         'st': 0.6,
-        'depth': 2
+        'depth': 3
         },
 
 
@@ -366,7 +379,8 @@ benchmark_settings = {
     'Mac': {
         'log_file': 'Mac/Mac_2k.log',
         'log_format': '<Month>  <Date> <Time> <User> <Component>\[<PID>\]( \(<Address>\))?: <Content>',
-        'regex': [r'([\w-]+\.){2,}[\w-]+'],
+        #'regex': [r'([\w-]+\.){2,}[\w-]+'],
+        'regex': [],
         'index_list': [0, 1, 2, 3, 4],
         'filter': [],
         'st': 0.6,
@@ -380,7 +394,7 @@ benchmark_settings = {
         'regex': [],
         'filter': [],
         'st': 0.6,
-        'depth': 2
+        'depth': 3
         },
 }
 
@@ -475,6 +489,9 @@ for dataset, setting in benchmark_settings.items():
                 #encoding='UTF-8', header=0)
     df_groundtruth = pd.read_csv(os.path.join(dirname(__file__)+'/logs/', setting['log_file'] + '_structured.csv'), encoding="utf-8")
     df_data = pd.DataFrame()
+
+    #config.drain_sim_th = setting['st']
+    #config.drain_depth = setting['depth']
     template_miner = TemplateMiner(config=config)
 
     start_time = time.time()

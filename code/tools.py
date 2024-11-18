@@ -15,6 +15,7 @@ import logging.config
 import re
 import nltk
 import en_core_web_md
+import math
 
 nlp = en_core_web_md.load()
 path = nltk.data.find('taggers/averaged_perceptron_tagger')
@@ -26,8 +27,8 @@ nltk.data.path.append(path)
 #nltk.download('averaged_perceptron_tagger', download_dir=path)
 
 #logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-#logging.basicConfig(filename="./tools.log", filemode="w", level=logging.INFO, format="%(levelname)s - %(message)s")
-logging.basicConfig(filename="./tools.log", filemode="w", level=logging.DEBUG, format="%(levelname)s - %(message)s")
+logging.basicConfig(filename="./tools.log", filemode="w", level=logging.INFO, format="%(levelname)s - %(message)s")
+#logging.basicConfig(filename="./tools.log", filemode="w", level=logging.DEBUG, format="%(levelname)s - %(message)s")
 logger = logging.getLogger() # default 'root' name is used
 
 # Example log messages
@@ -44,7 +45,6 @@ class Template():
       self.isPosSupported = isPosSupported
       self.setTemplate(templateTokens)
       self.setTokenPosTag(templateTokens)
-      self.setTokenOov(templateTokens)
 
     def getTemplateStr(self) -> str:
         return ' '.join(self.templateTokens)
@@ -83,12 +83,6 @@ class Template():
         logger.debug("template token: %s", tokens)
         logger.debug("tokenPosTag: %s", tokenPosTag)
         return tokenPosTag
-
-    def setTokenOov(self, templateTokens: Iterable[str]) -> None:
-        self.tokenOov = [nlp(token)[0].is_oov for token in templateTokens]
-
-    def getTokenOov(self) -> MutableMapping[int, bool]:
-        return self.tokenOov
 
 _T = TypeVar("_T")
 if TYPE_CHECKING:
@@ -144,6 +138,7 @@ class Tools(ScopeBase):
                  profiler: Profiler = NullProfiler(),
                  param_str: str = "<*>",
                  parametrize_numeric_tokens: bool = True,
+                 bi_tree_support: bool = False,
                  pos_support: bool = False) -> None:
         """
         Create a new Scope instance.
@@ -176,12 +171,12 @@ class Tools(ScopeBase):
         self.max_clusters = max_clusters
         self.param_str = param_str
         self.parametrize_numeric_tokens = parametrize_numeric_tokens
+        self.bi_tree_support = bi_tree_support
         self.pos_support = pos_support
 
         self.idToTemplateCluster: MutableMapping[int, Template] = {}
         self.lengthToTemplateIds = defaultdict(list)
         self.templateId = 0
-        #print("6666666666666666666666666666666666666   ", self.param_str)
 
     def getNewTemplateId(self) -> int:
         self.templateId += 1
@@ -466,7 +461,7 @@ class Tools(ScopeBase):
 
     # seq1 is a template, seq2 is the log to match
     def get_seq_distance(self, seq1: Sequence[str], seq2: Sequence[str], \
-                         preemptedTokens, tokenPosTag, SrcTokenOov, DestTokenOov, include_params: bool) -> Tuple[float, int]:
+                         preemptedTokens, tokenPosTag, include_params: bool) -> Tuple[float, int]:
         assert len(seq1) == len(seq2)
 
         # sequences are empty - full match
@@ -521,93 +516,113 @@ class Tools(ScopeBase):
                 return False
         logger.debug("Template to match: %s", seq1) # seq1 is the template
 
-        if self.pos_support:
-            lowercaseTokens = [element.lower() for element in seq2]
-            posTagger = nltk.pos_tag(lowercaseTokens)
-            destTokenPosTag = [pos for token, pos in posTagger]
-            logger.debug("destTokenPosTag: %s", destTokenPosTag)
+        def isAllAlphaCapital(token: str) -> bool:
+            return all(char.isupper() for char in token if char.isalpha())
+
+        def is_snake_or_camel(identifier):
+            snake_case_pattern = r'^[a-z]+(_[a-z]+)+$'
+            camel_case_pattern = r'^[a-zA-Z]+([A-Z][a-z]+)+$'
+            return bool(re.match(snake_case_pattern, identifier) or re.match(camel_case_pattern, identifier))
 
         for index, (token1, token2) in enumerate(zip(seq1, seq2)):
             logger.debug("index: %s, template token: %s, input token: %s", index, token1, token2)
             if token1 == token2:
                 sim_tokens += 1
-            #elif re.search(r"<:(\*|\w+):>", token1) or re.search(r"<:(\*|\w+):>", token2):
-            #elif re.search(r"<:[^:]+:>", token1) or re.search(r"<:[^:]+:>", token2):
             elif re.match(r"<[^:]+>", token1) or re.match(r"<[^:]+>", token2):
-                if token2: #in preemptedTokens[index]:
+                if token2 in preemptedTokens[index]:
                     param_count += 1
-            elif 0: #token is different, if token is judged to static part, similar distance is 0
+            elif ((not self.has_numbers(token1) and not self.has_numbers(token2)) or (isAllAlphaCapital(token1) and isAllAlphaCapital(token2))) \
+                        and not re.search(r"<[^:]+>", token1) and not re.search(r"<[^:]+>", token2):
+                if len(seq1) == 1:
+                    logger.debug(f"token: {token1}, {token2} is the only token, to be static part")
+                    return 0.0, 0
+
+                if 0: #self.pos_support:
+                    lowercaseTokens = [element.lower() for element in seq2]
+                    posTagger = nltk.pos_tag(lowercaseTokens)
+                    destTokenPosTag = [pos for token, pos in posTagger]
+                    logger.debug("destTokenPosTag: %s", destTokenPosTag)
+
+                    if is_determinated_static_part(tokenPosTag[index]) or is_determinated_static_part(destTokenPosTag[index]):
+                      logger.debug(f"static part is matched: {token1}: POS type: {tokenPosTag[index]} or {token2}: POS type: {destTokenPosTag[index]}")
+                      return 0.0, 0
+                    if tokenPosTag[index][0:1] != destTokenPosTag[index][0:1]:
+                      logger.debug(f"token: {token1}, {token2} has different POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}")
+                      return 0.0, 0
+                    elif("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index] or \
+                          "VB" in destTokenPosTag[index] or "JJ" in destTokenPosTag[index] or "NN" in destTokenPosTag[index]):
+                        if (index == 0 and (not tokenPosTag[index+1].startswith("VB") and not destTokenPosTag[index+1].startswith("VB")) \
+                            and (not any(char in seq1[index] for char in ['_', '/']) and not any(char in seq2[index] for char in ['_', '/']))):
+                            logger.debug(f"token: {token1}, {token2} is the first token and not followed by VB, not special string, to be static part")#1790
+                            return 0.0, 0
+                        if index>0 and (seq1[index-1] != ":" and seq1[index-1] != "=" and tokenPosTag[index-1] != "IN" and tokenPosTag[index-1] != "TO") \
+                            and (seq2[index-1] != ":" and seq2[index-1] != "=" and destTokenPosTag[index-1] != "IN" and destTokenPosTag[index-1] != "TO") \
+                            and ((not any(char in seq1[index] for char in ['_', '/']) and not any(char in seq2[index] for char in ['_', '/']))\
+                            and (not self.has_numbers(token1) or not self.has_numbers(token2))) \
+                            and not (seq1[index-1] == seq2[index-1] and (tokenPosTag[index-1].startswith("JJ") or destTokenPosTag[index-1].startswith("JJ"))):
+                            logger.debug(f"token: {token1}, {token2} don't stay after IN or TO type, and not special string and not both having NUM, to be static part")#3215
+                            return 0.0, 0
+                        if index>0 and "VB" in tokenPosTag[index] and (tokenPosTag[index-1] == "IN" or tokenPosTag[index-1] == "TO"):
+                            logger.debug(f"token: {token1}, {token2} is a verb after IN or TO, to be static part")#17 'to spawn'
+                            return 0.0, 0
+                        if index>0 and "NN" in destTokenPosTag[index] and "VB" in destTokenPosTag[index-1]:
+                            logger.debug(f"token: {token1}, {token2} is a noun after verb, to be static part")# removing xxx
+                            return 0.0, 0
+
+                if is_snake_or_camel(token2) and is_snake_or_camel(token1):
+                    logger.debug(f"token: {token1} and {token2} is snake or camel case, to be static part")
+                    return 0.0, 0
+                if index>0 and index<len(seq1)-1 and (seq2[index+1] in {"=", ":"}): # and (seq2[index-1] in {",", ".", ":"}):
+                    logger.debug(f"token: {token1}, {token2} stay after PUNC, and is followed by = or : , it's parameter name, to be static part") #16 only seq2 judge
+                    return 0.0, 0
+                if index==0 and (seq2[index+1] in {"=", ":"} or re.match(r"^[^:]+::[^:]+$", token1) or re.match(r"^[^:]+::[^:]+$", token2)):
+                    logger.debug(f"token: {token1}, {token2} is the first token, and is followed by = or : , it's parameter name, or it's function name, to be static part") #1797
+                    return 0.0, 0
+                if index>0 and index<len(seq1)-1 and (seq1[index-1] in {"=", ":"} or seq2[index-1] in {"=", ":"}) and (seq1[index+1] in {",", ".", ":"} or seq2[index+1] in {",", ".", ":"}) \
+                    and (not nlp(token1)[0].is_oov and not nlp(token2)[0].is_oov):
+                    logger.debug(f"token: {token1}, {token2} stay after : , and is followed by PUNC, it's parameter value, to be static part only when it's not OOV")#81 true&false&success
+                    return 0.0, 0
+                if index>0 and index<len(seq1)-1 and (seq1[index-1] in {":"} or seq2[index-1] in {":"}) and not (seq1[index+1] in {",", ".", ":"} or seq2[index+1] in {",", ".", ":"}) \
+                    and (isAllAlphaCapital(token1) and isAllAlphaCapital(token2)):
+                    logger.debug(f"token: {token1}, {token2} stay after : , and is not followed by PUNC, it's first token of sentense, to be static part only when all Alpa are capital")#44 IPV4
+                    return 0.0, 0
+                if index==len(seq1)-1 and index>0 and (seq1[index-1] in {":"} or seq2[index-1] in {":"}) and isAllAlphaCapital(token1) and isAllAlphaCapital(token2):
+                    logger.debug(f"token: {token1}, {token2} is the last token and all captial, to be static part") #3 JOB_SETUP
+                    return 0.0, 0
+                if isAllAlphaCapital(token1) or isAllAlphaCapital(token2):
+                    logger.debug(f"token: {token1}, {token2} is all captial, to be static part")
+                    return 0.0, 0
                 if self.pos_support:
-                    #if not self.has_numbers(token1) and not self.has_numbers(token2) and not SrcTokenOov[index] and not nlp(token2)[0].is_oov: # both token is normal words
-                    if not self.has_numbers(token2):
-                        if is_determinated_static_part(tokenPosTag[index]) and (index == 0 or (seq2[index-1] != ":" and seq2[index-1] != "=")):
-                            logger.debug(f"static part is matched b/w: {token1} and {token2}, POS type: {tokenPosTag[index]}")
+                    lowercaseTokens = [element.lower() for element in seq2]
+                    posTagger = nltk.pos_tag(lowercaseTokens)
+                    destTokenPosTag = [pos for token, pos in posTagger]
+                    logger.debug("destTokenPosTag: %s", destTokenPosTag)
+
+                    if is_determinated_static_part(tokenPosTag[index]) or is_determinated_static_part(destTokenPosTag[index]):
+                      logger.debug(f"static part is matched: {token1}: POS type: {tokenPosTag[index]} or {token2}: POS type: {destTokenPosTag[index]}")
+                      return 0.0, 0
+                    if tokenPosTag[index][0:1] != destTokenPosTag[index][0:1]:
+                      logger.debug(f"token: {token1}, {token2} has different POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}")
+                      return 0.0, 0
+                    elif("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index] or \
+                          "VB" in destTokenPosTag[index] or "JJ" in destTokenPosTag[index] or "NN" in destTokenPosTag[index]):
+                        if (index == 0 and (not tokenPosTag[index+1].startswith("VB") and not destTokenPosTag[index+1].startswith("VB")) \
+                            and (not any(char in seq1[index] for char in ['_', '/']) and not any(char in seq2[index] for char in ['_', '/']))):
+                            logger.debug(f"token: {token1}, {token2} is the first token and not followed by VB, not special string, to be static part")#1790
                             return 0.0, 0
-                        else:
-                            if not SrcTokenOov[index]: #and not nlp(token2)[0].is_oov: # both token is normal words
-                                if (("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index]) \
-                                    and (index == 0 or (seq1[index-1] != ":" and seq1[index-1] != "="))): #and not "IN" in tokenPosTag[index-1] and not "TO" in tokenPosTag[index-1]))):
-                                    logger.debug(f"token is judged to static part: {token1}, {token2}, {tokenPosTag[index]}")
-                                    return 0.0, 0
-                                else:
-                                    logger.debug(f"token is not judged to static part: {token1}, {token2}, {tokenPosTag[index]}")
-                            else:
-                                logger.debug(f"token: {token1}, {token2} is OOV, to be dynamic part")
-                    else:
-                            logger.debug(f"token: {token1}, {token2} has numbers or OOV, to be dynamic part")
-
-            elif 1:
-                if self.pos_support:
-                    if not self.has_numbers(token1) and not self.has_numbers(token2) and not re.search(r"<[^:]+>", token1) and not re.search(r"<[^:]+>", token2):
-                        if len(seq1) == 1:
-                            logger.debug(f"token: {token1}, {token2} is the only token, to be static part")
+                        if index>0 and (seq1[index-1] != ":" and seq1[index-1] != "=" and tokenPosTag[index-1] != "IN" and tokenPosTag[index-1] != "TO") \
+                            and (seq2[index-1] != ":" and seq2[index-1] != "=" and destTokenPosTag[index-1] != "IN" and destTokenPosTag[index-1] != "TO") \
+                            and ((not any(char in seq1[index] for char in ['_', '/']) and not any(char in seq2[index] for char in ['_', '/']))\
+                            and (not self.has_numbers(token1) or not self.has_numbers(token2))) \
+                            and not (seq1[index-1] == seq2[index-1] and (tokenPosTag[index-1].startswith("JJ") or destTokenPosTag[index-1].startswith("JJ"))):
+                            logger.debug(f"token: {token1}, {token2} don't stay after IN or TO type, and not special string and not both having NUM, to be static part")#3215
                             return 0.0, 0
-                        if is_determinated_static_part(tokenPosTag[index]) or is_determinated_static_part(destTokenPosTag[index]):
-                           logger.debug(f"static part is matched: {token1}: POS type: {tokenPosTag[index]} or {token2}: POS type: {destTokenPosTag[index]}")
-                           return 0.0, 0
-                        elif tokenPosTag[index][0:1] != destTokenPosTag[index][0:1]:
-                            logger.debug(f"token: {token1}, {token2} has different POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}")
+                        if index>0 and "VB" in tokenPosTag[index] and (tokenPosTag[index-1] == "IN" or tokenPosTag[index-1] == "TO"):
+                            logger.debug(f"token: {token1}, {token2} is a verb after IN or TO, to be static part")#17 'to spawn'
                             return 0.0, 0
-                        #elif not SrcTokenOov[index]:# or not nlp(token2)[0].is_oov:
-                        #elif not nlp(token2)[0].is_oov:
-                        else:
-
-                            if ("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index] or \
-                                "VB" in destTokenPosTag[index] or "JJ" in destTokenPosTag[index] or "NN" in destTokenPosTag[index]):
-
-                                if (index == 0 and (tokenPosTag[index+1].startswith("VB") or destTokenPosTag[index+1].startswith("VB"))):
-                                    logger.debug(f"token: {token1}, {token2} is the first token and followed by VB, to be dynamic part")
-                                    continue
-
-                                if (any(char in seq1[index] for char in ['_', '/']) or any(char in seq2[index] for char in ['_', '/'])):
-                                    logger.debug(f"token: {token1}, {token2} has special character, to be dynamic part")
-                                    continue
-
-                                if index > 0:
-                                    if (seq1[index-1] == ':' or seq2[index-1] == ':'):
-                                        if (index == len(seq1)-1 or (seq1[index+1] in {",", ";", "."} or seq2[index+1] in {",", ";", "."})) and (nlp(token1)[0].is_oov or nlp(token2)[0].is_oov):
-                                            continue
-
-                                if (index == 0 or (seq1[index-1] != "=" \
-                                    and tokenPosTag[index-1] != "IN" and tokenPosTag[index-1] != "TO")) \
-                                    and (index == 0 or (seq2[index-1] != "=" \
-                                    and destTokenPosTag[index-1] != "IN" and destTokenPosTag[index-1] != "TO")):
-                                    logger.debug(f"token: {token1}, {token2} has same POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}. previous token: {seq1[index-1]}, POS: {tokenPosTag[index-1]}")
-                                    return 0.0, 0
-
-                                if (index == 0 or (seq1[index-1] != ":" and seq1[index-1] != "=" \
-                                    and tokenPosTag[index-1] != "IN" and tokenPosTag[index-1] != "TO")) \
-                                    and (index == 0 or (seq2[index-1] != ":" and seq2[index-1] != "=" \
-                                    and destTokenPosTag[index-1] != "IN" and destTokenPosTag[index-1] != "TO")):
-                                    logger.debug(f"token: {token1}, {token2} has same POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}. previous token: {seq1[index-1]}, POS: {tokenPosTag[index-1]}")
-                                    return 0.0, 0
-
-                                if index+1<len(seq1) and (seq1[index+1] in {"=", ":"} or seq2[index+1] in {"=", ":"}):
-                                    logger.debug(f"token: {token1}, {token2} is followed by = or : , to be static part")
-                                    return 0.0, 0
-                    else:
-                        logger.debug(f"token: {token1}, {token2} has numbers or parameter string, to be dynamic part")
-
+                        if index>0 and "NN" in destTokenPosTag[index] and "VB" in destTokenPosTag[index-1]:
+                            logger.debug(f"token: {token1}, {token2} is a noun after verb, to be static part")# removing xxx
+                            return 0.0, 0
 
         if include_params:
             sim_tokens += param_count
@@ -679,7 +694,7 @@ class Tools(ScopeBase):
                    templateIds: Collection[int],
                    tokens: Sequence[str],
                    sim_th: float,
-                   include_params: bool) -> tuple[Optional[Template], float]:
+                   include_params: bool) -> tuple[Optional[Template], float, float]:
         """
         Find the best match for a log message (represented as tokens) versus a list of clusters
         :param templateIds: List of clusters to match against (represented by their IDs)
@@ -697,14 +712,20 @@ class Tools(ScopeBase):
         logger.debug("need to compare to following templateIds: %s", templateIds)
         destTokenOov = []#[nlp(token)[0].is_oov for token in tokens]
 
+        if sim_th == 0.0:
+            sim_th = 1 - (math.log(len(tokens), 2) / len(tokens))
+            #sim_th = int(sim_th * 10) / 10
+            sim_th = round(sim_th, 1)
+            logger.debug(f"dynamic sim_th: {sim_th} is calculated.")
+
         for id in templateIds:
             # Try to retrieve cluster from cache with bypassing eviction
             # algorithm as we are only testing candidates for a match.
             cluster = self.idToTemplateCluster.get(id)
             if cluster is None:
                 continue
-            cur_sim, param_count = self.get_seq_distance(cluster.getTemplateTokens(), tokens, cluster.getPreemptedTokenSet(), cluster.getTokenPosTag(), cluster.getTokenOov(), destTokenOov, include_params)
-            logger.debug(f"templateID:, {id}, sim:, {cur_sim}, sim_th:, {sim_th}")
+            cur_sim, param_count = self.get_seq_distance(cluster.getTemplateTokens(), tokens, cluster.getPreemptedTokenSet(), cluster.getTokenPosTag(), include_params)
+            logger.debug(f"templateID: {id}, sim: {cur_sim}, sim_th: {sim_th}")
             if cur_sim > max_sim or (cur_sim == max_sim and param_count > max_param_count):
                 max_sim = cur_sim
                 max_param_count = param_count
@@ -715,14 +736,14 @@ class Tools(ScopeBase):
             logger.debug(f"max_sim:, {max_sim}, sim_th:, {sim_th}")
             logger.debug("fast_match: tree template: %s", match_cluster.getTemplateTokens())
             logger.debug("fast_match: input tokens: %s", tokens)
-        return match_cluster, max_sim
+        return match_cluster, max_sim, max_param_count
 
     def findMatchedTemplateFromPool(self, length, tokens: Sequence[str]) -> tuple[Template]:
         if length not in self.lengthToTemplateIds:
             return None
         templateIds = self.lengthToTemplateIds.get(length)
         logger.debug("length: {}, size is: {}".format(length, len(templateIds)))
-        matchedTemplate, _ = self.fast_match(templateIds, tokens, self.sim_th, True)
+        matchedTemplate, _, _ = self.fast_match(templateIds, tokens, self.sim_th, True)
         return matchedTemplate
 
     def updateTemplateOfPool(self, template: Template, newTemplateTokens: Sequence[str]) -> None:
@@ -739,22 +760,26 @@ class Tools(ScopeBase):
                     include_params: bool) -> tuple[Optional[Template], float]:
         result = self.tree_search(root_node, tokens, SequenceType.FORWARD, sim_th, include_params)
         if result is not None:
-            fw, fw_sim = result
+            fw, fw_sim, fw_paraCnt = result
         else:
-            fw, fw_sim = None, 0.0
-        result =  self.tree_search(root_node, tokens, SequenceType.REVERSE, sim_th, include_params)
-        if result is not None:
-            rv, rv_sim = result
+            fw, fw_sim, fw_paraCnt = None, 0.0, 0.0
+        if self.bi_tree_support:
+            result =  self.tree_search(root_node, tokens, SequenceType.REVERSE, sim_th, include_params)
+            if result is not None:
+                rv, rv_sim, rv_paraCnt = result
+            else:
+                rv, rv_sim, rv_paraCnt = None, 0.0, 0.0
         else:
-            rv, rv_sim = None, 0.0
-        return (fw, fw_sim), (rv, rv_sim)
+            rv, rv_sim, rv_paraCnt = None, 0.0, 0.0
+
+        return (fw, fw_sim, fw_paraCnt), (rv, rv_sim, rv_paraCnt)
 
     def tree_search(self,
                     root_node: Node,
                     tokens: Sequence[str],
                     seq_type: SequenceType,
                     sim_th: float,
-                    include_params: bool) -> tuple[Optional[Template], float]:
+                    include_params: bool) -> tuple[Optional[Template], float, float]:
 
         # at first level, children are grouped by token (word) count
         token_count = len(tokens)
@@ -763,17 +788,17 @@ class Tools(ScopeBase):
         logger.debug("length node: %s", cur_node)
         # no template with same token count yet
         if cur_node is None:
-            return None, 0.0
+            return None, 0.0, 0.0
 
         cur_node = cur_node.keyToChildNode.get(str(int(seq_type.value)))
         logger.debug("direction node: %s", cur_node)
         # no template with matched dirction sequence yet
         if cur_node is None:
-            return None, 0.0
+            return None, 0.0, 0.0
         logger.debug("cur_node: %s", cur_node)
         # handle case of empty log string - return the single cluster in that group
         if token_count == 0:
-            return self.idToTemplateCluster.get(cur_node.templateIds[0]), 0.0
+            return self.idToTemplateCluster.get(cur_node.templateIds[0]), 0.0, 0.0
 
         # find the leaf node for this log - a path of nodes matching the first N tokens (N=tree depth)
         tokensToMatch = tokens[::1] if seq_type == SequenceType.FORWARD else tokens[::-1]
@@ -798,14 +823,14 @@ class Tools(ScopeBase):
             elif wildcard_node is not None:
                 cur_node = wildcard_node
             else:
-                return None, 0.0
+                return None, 0.0, 0.0
             # token is matched:
             logger.debug("branch match:" f'{token} is matched')
 
         # get best match among all clusters with same prefix, or None if no match is above sim_th
         logger.debug("branch is matched, go to fast_match")
-        cluster, sim = self.fast_match(cur_node.templateIds, tokens, sim_th, include_params)
-        return cluster, sim
+        cluster, sim, paraCnt = self.fast_match(cur_node.templateIds, tokens, sim_th, include_params)
+        return cluster, sim, paraCnt
 
     def buildTemplateWithInputLog(self, length, tokens: Sequence[str]) -> Optional[Template]:
         template = Template(tokens, self.getNewTemplateId(), isPosSupported=self.pos_support)
@@ -817,7 +842,8 @@ class Tools(ScopeBase):
 
     def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
         self.add_seq_to_prefix_tree(root_node, template, SequenceType.FORWARD)
-        self.add_seq_to_prefix_tree(root_node, template, SequenceType.REVERSE)
+        if self.bi_tree_support:
+            self.add_seq_to_prefix_tree(root_node, template, SequenceType.REVERSE)
 
     def add_log_message(self, content: str) -> Tuple[Template, str]:
         content_tokens = self.get_content_as_tokens(content)
@@ -825,7 +851,7 @@ class Tools(ScopeBase):
         logger.debug("========input log is============: %s",content_tokens)
         if self.profiler:
             self.profiler.start_section("findMatchedTemplateFromTree")
-        (fwSeqMatchedTemplate, fwSim), (RvSeqMatchedTemplate, rvSim) = self.findMatchedTemplateFromTree \
+        (fwSeqMatchedTemplate, fwSim, fwParaCnt), (RvSeqMatchedTemplate, rvSim, rvParaCnt) = self.findMatchedTemplateFromTree \
                                                                 (self.root_node, content_tokens, self.sim_th, include_params=True)
         logger.debug(f"tree_search return is:({fwSeqMatchedTemplate}, {RvSeqMatchedTemplate})")
         if self.profiler:
@@ -835,7 +861,12 @@ class Tools(ScopeBase):
         if fwSeqMatchedTemplate is None and RvSeqMatchedTemplate is None: # both forward and reverse sequence don't have matched template
             if self.profiler:
                 self.profiler.start_section("Match no existing template, findMatchedTemplateFromPool")
-            matchedPoolTemplate = self.findMatchedTemplateFromPool(length, content_tokens)
+
+
+
+            #matchedPoolTemplate = self.findMatchedTemplateFromPool(length, content_tokens)
+            matchedPoolTemplate = None
+
             if self.profiler:
                 self.profiler.end_section()
             if matchedPoolTemplate is None: # it's a new message which don't have template in pool yet
@@ -859,7 +890,16 @@ class Tools(ScopeBase):
                     logger.debug("fw template: %s", fwSeqMatchedTemplate.getTemplateStr())
                     logger.debug("RvSeqMatchedTemplate.templateId: %s", RvSeqMatchedTemplate.templateId)
                     logger.debug("Rv template: %s", RvSeqMatchedTemplate.getTemplateStr())
-                    matchedPoolTemplate = fwSeqMatchedTemplate if fwSim > rvSim else RvSeqMatchedTemplate
+                    #matchedPoolTemplate = fwSeqMatchedTemplate if fwSim > rvSim else RvSeqMatchedTemplate
+                    if fwSim > rvSim:
+                        matchedPoolTemplate = fwSeqMatchedTemplate
+                    elif fwSim < rvSim:
+                        matchedPoolTemplate = RvSeqMatchedTemplate
+                    elif fwSim == rvSim:
+                        if fwParaCnt <= rvParaCnt:
+                            matchedPoolTemplate = fwSeqMatchedTemplate
+                        else:
+                            matchedPoolTemplate = RvSeqMatchedTemplate
                     assert(1)
                 else:
                     matchedPoolTemplate = fwSeqMatchedTemplate

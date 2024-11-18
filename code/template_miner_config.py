@@ -28,6 +28,7 @@ class TemplateMinerConfig:
         self.mask_suffix = ">"
         self.parameter_extraction_cache_capacity = 3000
         self.parametrize_numeric_tokens = True
+        self.bi_tree_support = False
         self.pos_support = False
 
     def load(self, config_filename: str) -> None:
@@ -67,6 +68,8 @@ class TemplateMinerConfig:
                                                 fallback=self.drain_max_clusters)
         self.parametrize_numeric_tokens = parser.getboolean(section_drain, 'parametrize_numeric_tokens',
                                                             fallback=self.parametrize_numeric_tokens)
+        self.bi_tree_support = parser.getboolean(section_drain, 'bi_tree_support',
+                                         fallback=self.bi_tree_support)
         self.pos_support = parser.getboolean(section_drain, 'pos_support',
                                          fallback=self.pos_support)
 
