@@ -16,6 +16,9 @@ import re
 import nltk
 import en_core_web_md
 import math
+import threading
+import queue
+from dataclasses import dataclass
 
 nlp = en_core_web_md.load()
 path = nltk.data.find('taggers/averaged_perceptron_tagger')
@@ -120,6 +123,21 @@ class SequenceType(Enum):
     FORWARD = 1
     REVERSE = 2
 
+@dataclass
+class Task:
+    task_type: str
+    data: any
+
+@dataclass
+class Result:
+    task_type: str
+    data: any
+
+class TaskType:
+    tree_serach = "tree_serach"
+    tree_add = "tree_add"
+    thread_stop = "thread_stop"
+
 class Node():
     __slots__ = ["nodeType", "keyToChildNode", "templateIds", "tokensInWildcard"]
 
@@ -167,7 +185,9 @@ class Tools(ScopeBase):
         self.max_node_depth = depth - 2  # max depth of a prefix tree node, starting from zero
         self.sim_th = sim_th
         self.max_children = max_children
-        self.root_node = Node(NodeType.ROOT)
+        self.fw_tree_root_node = Node(NodeType.ROOT)
+        self.rv_tree_root_node = Node(NodeType.ROOT)
+        self.root_node = self.fw_tree_root_node
         self.profiler = profiler
         self.extra_delimiters = extra_delimiters
         self.max_clusters = max_clusters
@@ -179,6 +199,49 @@ class Tools(ScopeBase):
         self.idToTemplateCluster: MutableMapping[int, Template] = {}
         self.lengthToTemplateIds = defaultdict(list)
         self.templateId = 0
+
+        self.stop_event = threading.Event()
+        self.fw_tree_task_queue = queue.Queue()
+        self.fw_tree_result_queue = queue.Queue()
+        self.fw_thread = threading.Thread(target=self.thread_handling, args=(SequenceType.FORWARD, self.fw_tree_task_queue, self.fw_tree_result_queue))
+        self.fw_thread.start()
+        if self.pos_support:
+            self.rv_tree_task_queue = queue.Queue()
+            self.rv_tree_result_queue = queue.Queue()
+            self.rv_thread = threading.Thread(target=self.thread_handling, args=(SequenceType.REVERSE, self.rv_tree_task_queue, self.rv_tree_result_queue))
+            self.rv_thread.start()
+
+    def thread_stop(self):
+        self.stop_event.set()
+        task = Task(TaskType.thread_stop, None)
+        self.fw_tree_task_queue.put(task)
+        if self.pos_support:
+            self.rv_tree_task_queue.put(task)
+        self.fw_thread.join()
+        if self.pos_support:
+            self.rv_thread.join()
+
+    def thread_handling(self, direction: SequenceType, task_queue: queue.Queue, result_queue: queue.Queue) -> None:
+        while not self.stop_event.is_set():
+            task = task_queue.get()
+            root_node = self.fw_tree_root_node if direction == SequenceType.FORWARD else self.rv_tree_root_node
+            if task.task_type == TaskType.tree_serach:
+                content_tokens = task.data
+                result = self.tree_search(root_node, content_tokens, direction, self.sim_th, include_params=True)
+                if result is not None:
+                    fw, fw_sim, fw_paraCnt = result
+                else:
+                    fw, fw_sim, fw_paraCnt = None, 0.0, 0.0
+                result_queue.put(Result(task.task_type, (fw, fw_sim, fw_paraCnt)))
+                task_queue.task_done()
+
+            elif task.task_type == TaskType.tree_add:
+                template = task.data
+                self.add_seq_to_prefix_tree(root_node, template, direction)
+                result_queue.put(Result(task.task_type, None))
+                task_queue.task_done()
+            elif task.task_type == TaskType.thread_stop:
+                break
 
     def getNewTemplateId(self) -> int:
         self.templateId += 1
@@ -556,7 +619,7 @@ class Tools(ScopeBase):
                     return 0.0, 0
                 if isAllAlphaCapital(token1) or isAllAlphaCapital(token2):
                     tools_logger.debug(f"token: {token1}, {token2} is all captial, to be static part")
-                    return 0.0, 0              
+                    return 0.0, 0
                 if self.pos_support:
                     lowercaseTokens = [element.lower() for element in seq2]
                     posTagger = nltk.pos_tag(lowercaseTokens)
@@ -567,7 +630,7 @@ class Tools(ScopeBase):
                         return 0.0, 0
                     if tokenPosTag[index][0:1] != destTokenPosTag[index][0:1]:
                         tools_logger.debug(f"token: {token1}, {token2} has different POS type: {tokenPosTag[index]} and {destTokenPosTag[index]}")
-                        return 0.0, 0                
+                        return 0.0, 0
                     elif("VB" in tokenPosTag[index] or "JJ" in tokenPosTag[index] or "NN" in tokenPosTag[index] or \
                           "VB" in destTokenPosTag[index] or "JJ" in destTokenPosTag[index] or "NN" in destTokenPosTag[index]):
                         if (index == 0 and (not tokenPosTag[index+1].startswith("VB") and not destTokenPosTag[index+1].startswith("VB")) \
@@ -596,7 +659,7 @@ class Tools(ScopeBase):
                     and (not nlp(token1)[0].is_oov and not nlp(token2)[0].is_oov):
                     tools_logger.debug(f"token: {token1}, {token2} stay after : , and is followed by PUNC, it's parameter value, to be static part only when it's not OOV")#81 true&false&success
                     return 0.0, 0 # effect is small, plan to remove it
-                
+
         if include_params:
             sim_tokens += param_count
 
@@ -726,7 +789,7 @@ class Tools(ScopeBase):
         # if template.templateId in lst:
         #     lst.append(lst.pop(lst.index(template.templateId)))
 
-    def findMatchedTemplateFromTree(self,
+    """def findMatchedTemplateFromTree(self,
                     root_node: Node,
                     tokens: Sequence[str],
                     sim_th: float,
@@ -745,7 +808,27 @@ class Tools(ScopeBase):
         else:
             rv, rv_sim, rv_paraCnt = None, 0.0, 0.0
 
-        return (fw, fw_sim, fw_paraCnt), (rv, rv_sim, rv_paraCnt)
+        return (fw, fw_sim, fw_paraCnt), (rv, rv_sim, rv_paraCnt) """
+
+    def findMatchedTemplateFromTree(self,
+                    root_node: Node,
+                    tokens: Sequence[str],
+                    sim_th: float,
+                    include_params: bool) -> tuple[Optional[Template], float]:
+        task = Task(task_type=TaskType.tree_serach, data=tokens)
+        self.fw_tree_task_queue.put(task)
+        if self.pos_support:
+            self.rv_tree_task_queue.put(task)
+        self.fw_tree_task_queue.join()
+        if self.pos_support:
+            self.rv_tree_task_queue.join()
+        fw_result = self.fw_tree_result_queue.get().data #  fw, fw_sim, fw_paraCnt
+        if self.pos_support:
+            rv_result = self.rv_tree_result_queue.get().data #  rv, rv_sim, rv_paraCnt
+        else:
+            rv_result = (None, 0.0, 0.0)
+
+        return fw_result, rv_result
 
     def tree_search(self,
                     root_node: Node,
@@ -813,10 +896,24 @@ class Tools(ScopeBase):
         tools_logger.debug("length: {}, str is: {}".format(length, tokens))
         return template
 
-    def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
+    """def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
         self.add_seq_to_prefix_tree(root_node, template, SequenceType.FORWARD)
         if self.bi_tree_support:
-            self.add_seq_to_prefix_tree(root_node, template, SequenceType.REVERSE)
+            self.add_seq_to_prefix_tree(root_node, template, SequenceType.REVERSE)"""
+
+    def addTemplateSeqToPrefixTree(self, root_node: Node, template: Template) -> None:
+        task = Task(task_type=TaskType.tree_add, data=template)
+        self.fw_tree_task_queue.put(task)
+        if self.pos_support:
+            self.rv_tree_task_queue.put(task)
+        self.fw_tree_task_queue.join()
+        if self.pos_support:
+            self.rv_tree_task_queue.join()
+        fw_result = self.fw_tree_result_queue.get().data
+        if self.pos_support:
+            rv_result = self.rv_tree_result_queue.get().data
+        else:
+            rv_result = None
 
     def add_log_message(self, content: str) -> Tuple[Template, str]:
         content_tokens = self.get_content_as_tokens(content)
@@ -825,7 +922,7 @@ class Tools(ScopeBase):
         if self.profiler:
             self.profiler.start_section("findMatchedTemplateFromTree")
         (fwSeqMatchedTemplate, fwSim, fwParaCnt), (RvSeqMatchedTemplate, rvSim, rvParaCnt) = self.findMatchedTemplateFromTree \
-                                                                (self.root_node, content_tokens, self.sim_th, include_params=True)
+                                                                (self.fw_tree_root_node, content_tokens, self.sim_th, include_params=True)
         tools_logger.debug(f"tree_search return is:({fwSeqMatchedTemplate}, {RvSeqMatchedTemplate})")
         if self.profiler:
             self.profiler.end_section()

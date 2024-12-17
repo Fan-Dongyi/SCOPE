@@ -85,6 +85,8 @@ class TemplateMiner:
 
         #if persistence_handler is not None:
             #self.load_state()
+    def thread_stop(self):
+        self.scope.thread_stop()
 
     def load_state(self) -> None:
         logger.info("Checking for saved state")
@@ -399,6 +401,7 @@ if __name__ == "__main__":
             result_json = json.dumps(result)
             #logger.info(f"Input ({line_count}): {line}")
             logger.info(f"Result: {result_json}")
+    template_miner.thread_stop()
 
     time_took = time.time() - start_time
     rate = line_count / time_took

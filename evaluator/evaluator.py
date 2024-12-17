@@ -439,7 +439,8 @@ for dataset, setting in benchmark_settings.items():
 
         log_templateIds.append(result["cluster_id"])
         log_templateStrs.append(result["template_mined"])
-
+        
+    template_miner.thread_stop()
     time_took = time.time() - start_time
     rate = line_count / time_took
 
